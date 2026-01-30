@@ -58,8 +58,8 @@ def load_data():
     return df_launch, df_water_per_cap, df_co2
 
 df_launch, df_water,df_co2 = load_data()
-print(df_launch.head())
+# print(df_water.head())
 # sns.set_theme(style = "darkgrid")
-# sns.lineplot(x = 'col1', y = 'col2', data = df_water)
+# sns.lineplot(x = 'Year', y = 'Freshwater use per capita', data = df_water)
 # plt.show()
 
