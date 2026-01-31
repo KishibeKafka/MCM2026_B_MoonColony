@@ -53,7 +53,9 @@ def load_data():
     })
 
     # launch data from 1992 to 2025
-    df_launch = df_launch[pd.to_datetime(df_launch['Date']).dt.year < 2026]
+    df_launch['Date'] = pd.to_datetime(df_launch['Date'], utc=True, errors='coerce')
+    df_launch['Year'] = df_launch['Date'].dt.year
+    df_launch = df_launch[df_launch['Year'] < 2026]
 
     return df_launch, df_water_per_cap, df_co2
 

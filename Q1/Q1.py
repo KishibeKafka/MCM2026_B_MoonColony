@@ -14,11 +14,6 @@ from load_data import load_data
 df_launch, _, _ = load_data()
 
 def model_for_launch(df_launch):
-    # Extract Year
-    # working on Date
-    df_launch['Date'] = pd.to_datetime(df_launch['Date'], utc=True, errors='coerce')
-    df_launch['Year'] = df_launch['Date'].dt.year
-
     # 10 Launch Locations
     target_keywords = [
         'Alaska', 'CA', 'TX', 'FL', 'Virginia',  # USA States
@@ -147,12 +142,75 @@ def predict_2050_fgi(model, annual_launches):
     plt.ylabel('Number of Launches')
     plt.legend()
     plt.grid(True, alpha=0.3)
+    plt.savefig('launch_times.png')
     plt.show()
     print(f"Predicted FGI is {round(int(fgi[0]/10))}")
     return round(int(fgi[0]/10))
 
 model, annual_launches = model_for_launch(df_launch)
 FGI = predict_2050_fgi(model, annual_launches)
+
+def model_for_price(df_launch):
+    # Filter out entries with missing Price
+    df_price = df_launch.dropna(subset=['Price']).copy()
+
+    # Clean Price column: remove '$' and ',' and convert to float
+    df_price['Price'] = df_price['Price'].astype(str).str.replace(r'[$,]', '', regex=True)
+    df_price['Price'] = pd.to_numeric(df_price['Price'], errors='coerce')
+
+    # Drop rows where price conversion failed
+    df_price = df_price.dropna(subset=['Price'])
+
+    # Calculate average price per year
+    annual_avg_price = df_price.groupby('Year')['Price'].mean().reset_index()
+
+    # Log transform
+    annual_avg_price['Log Price'] = np.log(annual_avg_price['Price'])
+    
+    X = annual_avg_price['Year'].values.reshape(-1, 1)
+    y = annual_avg_price['Log Price'].values
+
+    # Train Regression Model (Linear on Log Price)
+    model = LinearRegression()
+    model.fit(X, y)
+
+    return model, annual_avg_price
+
+def predict_price_2050(model, annual_avg_price):
+    year_2050 = np.array([[2050]])
+    log_price_2050 = model.predict(year_2050)
+    price_2050 = np.exp(log_price_2050)[0]
+    print(f"Predicted Average Launch Price (2050): ${price_2050:,.2f}")
+
+    # Visualization (Plotting on Original Price Scale)
+    plt.figure(figsize=(10, 6))
+    
+    # Plot historical data (Price)
+    sns.scatterplot(data=annual_avg_price, x='Year', y='Price', label='Historical Data', color='blue')
+
+    # Plot trend line (Exp of Linear Log Prediction)
+    year_range = np.arange(annual_avg_price['Year'].min(), 2051).reshape(-1, 1)
+    log_pred_line = model.predict(year_range)
+    y_pred_line = np.exp(log_pred_line)
+
+    plt.plot(year_range, y_pred_line, color='green', linestyle='--', linewidth=1, label='Trend Prediction')
+    
+    # Plot 2050 prediction
+    plt.scatter(2050, price_2050, color='green', s=50, zorder=5,
+                label=f'2050 Prediction: ${price_2050:,.2f}')
+
+    plt.title('Average Launch Price Trend')
+    plt.xlabel('Year')
+    plt.ylabel('Average Price ($)')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.savefig('launch_price.png')
+    plt.show()
+
+    return price_2050
+    
+price_model, annual_avg_price = model_for_price(df_launch)
+price_2050 = predict_price_2050(price_model, annual_avg_price)
 
 # --- 1. Parameters & Variables ---
 M = 1e8  # 100 million tons
@@ -162,15 +220,15 @@ MI = 125       # Payload per annual launch slot (Tons)
 FGMAX_VAL = FGI    # Max annual launches per site
 
 # Costs & Reliability
-C_RB = 1e6     # Fixed Cost per annual launch slot
-C_RM = 5000    # Variable Cost per ton
+C_RB = price_2050     # Fixed Cost per annual launch slot (Predicted 2050 price)
+C_RM = 5000    # Variable Cost per ton (Assumed cargo integration cost)
 eta = 1        # Success rate (assumed 1 for deterministic model)
 
 # Space Elevator (Scenario A)
 NUM_SE_PORTS = 3
 Qeu = 179000   # Earth-Apex throughput (Tons/year)
 Qed = 200000   # Apex-Moon throughput
-Ce = 1000        # Unit Cost (per Ton)
+Ce = 1000        # Unit Cost (per Ton) - Reasonable estimate for mature SE
 
 b_factor = 0.05 # Fuel/Spares percentage
 
@@ -365,4 +423,5 @@ plt.xlabel('Time (Years)')
 plt.ylabel('Total Cost')
 plt.legend()
 plt.grid(True, alpha=0.3)
+plt.savefig('pareto.png')
 plt.show()
