@@ -3,84 +3,66 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-# Base Parameters (From Q1) 
-M = 1e8             # 100 Million Tons
-MI = 125           # Rocket Payload
-FGMAX_VAL = 110 # Max launches per site
-NUM_SITES = 10
+from Q1.Q1 import Q1
 
-# Costs (Base)
-C_RB = 21464577.32    # Rocket Fixed Cost
-C_RM = 5000         # Rocket Variable Cost / ton
-Ce_Base = 1000       # SE Unit Cost
-b_factor = 0.05
-# Effective SE Unit Cost (Operational)
-C_unit_SE = Ce_Base + Ce_Base * (1 - b_factor)
+class Q2(Q1):
+    def __init__(self, FGI, C_RB):
+        super().__init__(FGI, 21464577.32)
+        print(f"DEBUG: Q2 Init - Qse={self.Qse}, Qrocket={self.Qrocket}")
+        self.Cfix = C_RB  # Cost to repair one cable
 
-# SE Capacity Base
-NUM_SE_PORTS = 3
-Qeu = 179000
-Qed = 200000
-Rate_SE = NUM_SE_PORTS * min(Qeu, Qed)
+    # Model Functions
+    def get_capacity_factors(self, Pes):
+        """
+        假设是两条缆绳是独立损坏的
+        Probabilities:
+          P(delta=0)   = Pes^2
+          P(delta=0.5) = 2Pes - 2Pes^2
+          P(delta=1)   = (1 - Pes)^2
+        """    
+        exp_delta = 0 * (Pes**2) + 0.5 * (2 * Pes - 2 * Pes**2) + 1 * ((1 - Pes)**2)
+        return exp_delta
 
-# Q2 Specific Parameters (Estimates)
-Cfix = C_RB        # Cost to repair one cable
-
-# Model Functions
-def get_capacity_factors(Pes):
-    """
-    假设是两条缆绳是独立损坏的
-    Probabilities:
-      P(delta=0)   = Pes^2
-      P(delta=0.5) = 2Pes - 2Pes^2
-      P(delta=1)   = (1 - Pes)^2
-    """    
-    exp_delta = 0 * (Pes**2) + 0.5 * (2 * Pes - 2 * Pes**2) + 1 * ((1 - Pes)**2)
-    return exp_delta
-
-MI_ARR = np.full(NUM_SITES, MI)
-
-def calculate_q2_metrics(fgi_array, Pes, Pr, n_weather_months):
-    """
-    Calculates Time and Cost under imperfect conditions.
-    """
-    rate_rocket = np.sum(fgi_array * MI_ARR)
-    a = Rate_SE / (Rate_SE + rate_rocket)
-
-    gamma = n_weather_months / 12.0
-    
-    # Time Calculation
-    # Qe = sigam（3,1) [ Qeu * delat * gama-weather * (1 - Pe) ]
-    exp_delta = get_capacity_factors(Pes)
-    Q_elev = Rate_SE * gamma * exp_delta
-    
-    # Annual Rocket Throughput
-    # User formula: sigma(10,1)[fgi * mi * gamma] * (1 - Pr)
-    max_rocket_launches = NUM_SITES * FGMAX_VAL
-    Q_rocket = max_rocket_launches * MI * gamma * (1 - Pr)
-    
-    total_rate = Q_elev + Q_rocket
-    
-    if total_rate <= 0:
-        return float('inf'), float('inf')
+    def calculate_scenario_metrics(self, alpha, Pes, Pr, n_weather_months):
+        """
+        Calculates Time and Cost under imperfect conditions.
+        Overrides Q1 method to account for reliability and repair costs.
+        """
+        # Calculate dynamic rocket rate based on fgi_array input
+        # Note: self.Qse is base annual capacity.
+        # Q2 Logic: Capacity is affected by Reliability and Weather
         
-    # Time to transport M
-    T = M / total_rate
-    
-    # Cost Calculation
-    c_rocket_var = (1 - a) * M * C_RM / (1 - Pr)
-    
-    c_rocket_fix = C_RB * ((1 - a) * M) / (MI * (1 - Pr))
-    
-    c_se_op = a * M * C_unit_SE # same as Q1
-    
-    # Cfix = T * 6 * Pes
-    c_se_repair = Cfix * T * 6 * Pes
-    
-    C_total = c_rocket_var + c_rocket_fix + c_se_op + c_se_repair
-    
-    return T, C_total, a
+        gamma = n_weather_months / 12.0
+        
+        # SE Throughput (Expected)
+        # Q_elev = Rate_SE * gamma * E[delta]
+        exp_delta = self.get_capacity_factors(Pes)
+        
+        Qe = self.Qse * gamma * exp_delta * (1 - Pes) # t/year
+        Qr = self.Qrocket * gamma * (1 - Pr) # t/year
 
+        t_se = (alpha * self.M) / Qe if Qe > 0 else float('inf')
+        t_rocket = ((1 - alpha) * self.M) / Qr if Qr > 0 else float('inf')
+        # If alpha is 0, t_se is 0 (not inf). If alpha is 1, t_rocket is 0.
+        if alpha == 0: t_se = 0
+        if alpha == 1: t_rocket = 0
+        T = max(t_se, t_rocket)
+
+        c_rocket_var = ((1 - alpha) * self.M) * self.C_RM / (1 - Pr)
+        
+        c_rocket_fix = self.C_RB * ((1 - alpha) * self.M) / (self.MI * (1 - Pr))
+
+        c_se_op = alpha * self.M * self.Cse
+        
+        num_cables = self.NUM_SE_PORTS * 2
+        c_se_repair = self.Cfix * T * num_cables * Pes
+        
+        C_total = c_rocket_var + c_rocket_fix + c_se_op + c_se_repair
+        
+        return T, C_total
+
+# Analysis
+# --- 3. Sensitivity Analysis (Heatmap) ---
 # Analysis
 # --- 3. Sensitivity Analysis (Heatmap) ---
 def sensitivity_analysis(steps=20):
@@ -89,15 +71,32 @@ def sensitivity_analysis(steps=20):
     pr_values = np.linspace(0.001, 0.2, steps)
     
     normal_weather_months = 12
-    fgi_curr = np.full(NUM_SITES, FGMAX_VAL)  # Max rocket usage for sensitivity
+    # Initialize Solver
+    FGMAX_VAL = 110 
+    C_RB_VAL = 21464577.32 
+    solver = Q2(FGI=FGMAX_VAL, C_RB=C_RB_VAL)
+    
     # Store results
     cost_sensitivity = np.zeros((steps, steps))
     time_sensitivity = np.zeros((steps, steps))
 
     for i, pes in enumerate(pes_values):
         for j, pr in enumerate(pr_values):
-            # Calculate metrics directly using fixed strategy (Full Capacity)
-            t_curr, c_curr, _ = calculate_q2_metrics(fgi_curr, pes, pr, normal_weather_months)
+            # Calculate metrics
+            gamma = normal_weather_months / 12.0
+            exp_delta = solver.get_capacity_factors(pes)
+            
+            # Max available throughputs
+            Qe_max = solver.Qse * gamma * exp_delta * (1 - pes)
+            Qr_max = solver.Qrocket * gamma * (1 - pr)
+            
+            total_rate = Qe_max + Qr_max
+            if total_rate <= 0:
+                t_curr, c_curr = float('inf'), float('inf')
+            else:
+                # Alpha is naturally the share of SE in this max-effort scenario
+                effective_alpha = Qe_max / total_rate
+                t_curr, c_curr = solver.calculate_scenario_metrics(effective_alpha, pes, pr, normal_weather_months)
             
             cost_sensitivity[i, j] = c_curr
             time_sensitivity[i, j] = t_curr
@@ -173,6 +172,11 @@ def sensitivity_analysis(steps=20):
 def monte_carlo_simulation(num_simulations=1000):
     print(f"\nStarting Monte Carlo Simulation ({num_simulations} runs)...")
     
+    # Initialize Solver for parameters
+    FGMAX_VAL = 110 
+    C_RB_VAL = 21464577.32 
+    solver = Q2(FGI=FGMAX_VAL, C_RB=C_RB_VAL)
+    
     sim_times = []
     sim_costs = []
     
@@ -180,107 +184,78 @@ def monte_carlo_simulation(num_simulations=1000):
     mean_weather_months = 12
     std_weather_months = 1
     
-    # Base strategy: Aim for Scenario C optimal ratio initially, but adjust dynamically
-    # For simulation, we assume unlimited demand to finish M as fast as possible or cost-effective?
-    # Logic: Dynamic filling of gap.
-    
     for sim_id in range(num_simulations):
         mass_delivered = 0
         current_year = 0
         total_cost = 0
         
-        while mass_delivered < M:
+        while mass_delivered < solver.M:
             current_year += 1
             
             # 1. Environment Generation
             # Weather (Normal distribution clipped 1-12)
             g_weather = np.clip(np.random.normal(mean_weather_months, std_weather_months), 1, 12) / 12.0
             
-            # Rocket Failure Probability sample for this year
+            # Failure Probabilities (Stochastic per year)
             pr_sample = np.random.beta(2, 20) # Mean ~0.1
-            
-            # 3 SE Ports Status (Independent)
-            # Pes sample for this year/cable
             pes_sample = np.random.beta(2, 38) # Mean ~0.05
             
-            # Calculate SE Capacity
-            # Each port has 2 cables? Assuming abstract capacity factor
-            # exp_delta = get_capacity_factors(pes_sample) 
-            # Or simulate discrete events for 3 ports:
+            # 2. SE Capacity (Stochastic)
             se_delivered_this_year = 0
             repair_events = 0
             
-            for port in range(NUM_SE_PORTS):
-                # Roll for cables. Assume 2 cables per port?
-                # Simplified: Port efficiency delta 
-                # P(normal) = (1-pes)^2, P(0.5) = ..., P(0) = ...
+            # Assume 3 Ports
+            for port in range(solver.NUM_SE_PORTS):
                 rand_val = np.random.random()
                 p_full = (1 - pes_sample)**2
                 p_half = 2 * pes_sample * (1 - pes_sample)
-                # p_zero = pes_sample**2
                 
                 if rand_val < p_full:
-                    delta = 1.0
+                    delta = 1.0 
                 elif rand_val < p_full + p_half:
                     delta = 0.5
-                    repair_events += 1 # 1 cable fix
+                    repair_events += 1 
                 else:
                     delta = 0.0
-                    repair_events += 2 # 2 cables fix (or 1 major?)
+                    repair_events += 2 
                 
-                # Single Port Capacity = Rate_SE_Base / 3
-                port_cap = (Rate_SE / NUM_SE_PORTS) * delta * g_weather
+                # Single Port Capacity 
+                port_cap = (solver.Qse / solver.NUM_SE_PORTS) * delta * g_weather
                 se_delivered_this_year += port_cap
             
-            # 2. Strategy Response (Fill Gap)
-            remaining_mass = M - mass_delivered
+            # 3. Strategy Response (Fill Gap)
+            remaining_mass = solver.M - mass_delivered
             
-            # Decide Rockets
-            # "If gap exists, increase rocket frequency"
-            # Here gap is basically "remaining mass". 
-            # We want to use max rockets if SE is down? Or just enough?
-            # User logic: "Rocket base increase launch frequency to fill gap"
-            # This implies a target annual rate. Let's assume target is M / 25 years (Base plan).
-            target_annual = M / 25.0 
+            target_annual = solver.M / 25.0 
             gap = max(0, target_annual - se_delivered_this_year)
             
             # Rocket Capacity Calculation
-            # Launches needed = gap / (MI * (1 - pr_sample))
-            # But limited by FGMAX
-            max_launches_total = NUM_SITES * FGMAX_VAL
+            max_launches_total = solver.NUM_LAUNCH_LOCATIONS * solver.FGI
             
-            launches_needed = int(np.ceil(gap / (MI * (1 - pr_sample)))) if (1 - pr_sample) > 0 else max_launches_total
+            if (1 - pr_sample) > 0:
+                launches_needed = int(np.ceil(gap / (solver.MI * (1 - pr_sample))))
+            else:
+                launches_needed = max_launches_total
+                
             launches_actual = min(launches_needed, max_launches_total)
             
-            # Rocket Delivery
-            # Binomial for success? Or expected value?
-            # Monte Carlo suggests Binomial for actual successes
+            # Actual Rocket Delivery (Binomial)
             success_launches = np.random.binomial(launches_actual, 1 - pr_sample)
-            rocket_delivered_this_year = success_launches * MI * g_weather # Weather affects rocket too
+            rocket_delivered_this_year = success_launches * solver.MI * g_weather 
             
-            # Total Mass
-            total_delivered_year = se_delivered_this_year + rocket_delivered_this_year
-            mass_delivered += total_delivered_year
+            # Update State
+            mass_delivered += se_delivered_this_year + rocket_delivered_this_year
             
-            # 3. Cost Calculation
-            # SE Ops (Fixed per year or per ton?)
-            # Q1 formula: a * M * Ce. implies per ton.
-            cost_se_ops = se_delivered_this_year * C_unit_SE
-            
-            # SE Repair
-            cost_se_fix = repair_events * Cfix # Assumed Cfix is per cable/event
-            
-            # Rocket Variable
-            cost_rocket_var = rocket_delivered_this_year * C_RM
-            
-            # Rocket Fixed
-            cost_rocket_fix = launches_actual * C_RB
+            # 4. Cost Calculation
+            # Costs using solver attributes
+            cost_se_ops = se_delivered_this_year * solver.Cse
+            cost_se_fix = repair_events * solver.Cfix 
+            cost_rocket_var = rocket_delivered_this_year * solver.C_RM
+            cost_rocket_fix = launches_actual * solver.C_RB
             
             total_cost += cost_se_ops + cost_se_fix + cost_rocket_var + cost_rocket_fix
             
-            # Fail-safe for infinite loop
-            if current_year > 1000:
-                break
+            if current_year > 1000: break
                 
         sim_times.append(current_year)
         sim_costs.append(total_cost)

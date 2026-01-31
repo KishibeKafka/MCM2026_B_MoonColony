@@ -8,7 +8,7 @@ from sklearn.preprocessing import PolynomialFeatures
 from sklearn.pipeline import make_pipeline
 from scipy.optimize import milp, LinearConstraint, Bounds
 
-from load_data import load_data
+from Q1.load_data import load_data
 
 # load datasets
 df_launch, _, _ = load_data()
