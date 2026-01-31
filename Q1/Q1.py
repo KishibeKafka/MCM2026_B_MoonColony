@@ -57,11 +57,9 @@ def model_for_launch(df_launch):
             all_preds_arr = np.array(all_preds)
             
             total_pred = np.sum(all_preds_arr, axis=0)
-            # Use 70th percentile (top 30%) for max_pred and 30th percentile (bottom 30%) for min_pred
-            max_pred = np.percentile(all_preds_arr, 70, axis=0)
-            min_pred = np.percentile(all_preds_arr, 30, axis=0)
+            max_pred = all_preds_arr.max(axis=0)
             
-            return total_pred, max_pred, min_pred
+            return total_pred, max_pred
 
     # Piecewise Linear Model Class (Breakpoint 2020)
     class PiecewiseLinearRegression:
@@ -115,10 +113,9 @@ def model_for_launch(df_launch):
 def predict_2050_fgi(model, annual_launches):
     # 预测 2050 年
     year_2050 = np.array([[2050]])
-    fgi, fgmax, fgmin = model.predict(year_2050)
+    fgi, fgmax = model.predict(year_2050)
     print(f"Predicted Total Annual Launch Capacity (2050): {int(fgi[0])}")
-    print(f"Predicted Max Annual Launch Capacity (2050): {int(fgmax[0])}")
-    print(f"Predicted Min Annual Launch Capacity (2050): {int(fgmin[0])}")
+    print(f"Max Annual Launch Capacity in Locations: {int(fgmax[0])}")
     # Visualization
     plt.figure(figsize=(10, 6))
     sns.scatterplot(data=annual_launches, x='Year', y='Count', label='Historical Data', color='blue')
@@ -126,16 +123,12 @@ def predict_2050_fgi(model, annual_launches):
     year_range = np.arange(annual_launches['Year'].min(), 2051).reshape(-1, 1)
     y_pred_line = model.predict(year_range)[0]
     y_max_line = model.predict(year_range)[1]
-    y_min_line = model.predict(year_range)[2]
 
-    plt.plot(year_range, y_pred_line, color='green', linestyle='--', linewidth=1, label='Trend Prediction')
+    plt.plot(year_range, y_pred_line, color='green', linestyle='--', linewidth=1, label='Trend Total')
     plt.plot(year_range, y_max_line, color='red', linestyle='--', linewidth=1, label='Trend Max')
-    plt.plot(year_range, y_min_line, color='yellow', linestyle='--', linewidth=1, label='Trend Min')
     # 2050
     plt.scatter(2050, fgi, color='green', s=50, zorder=5,
                 label=f'2050 Prediction: {int(fgi[0])}')
-    # plt.scatter(2050, fgmax, color='orange', s=100, zorder=5,
-    #             label=f'2050 Min Launch: {int(fgmin[0])}')
 
     plt.title('Annual Launches Trend for 10 Locations')
     plt.xlabel('Year')
@@ -144,36 +137,25 @@ def predict_2050_fgi(model, annual_launches):
     plt.grid(True, alpha=0.3)
     plt.savefig('launch_times.png')
     plt.show()
-    print(f"Predicted FGI is {round(fgi[0]/10)}")
-    return round(fgi[0]/10)
-
-model, annual_launches = model_for_launch(df_launch)
-FGI = predict_2050_fgi(model, annual_launches)
+    print(f"Predicted total launch times is {round(fgi[0])}, max launch times is {round(fgmax[0])}")
+    return round(fgi[0]), round(fgmax[0])
 
 def model_for_price(df_launch):
     # Filter out entries with missing Price
     df_price = df_launch.dropna(subset=['Price']).copy()
-
     # Clean Price column: remove '$' and ',' and convert to float
     df_price['Price'] = df_price['Price'].astype(str).str.replace(r'[$,]', '', regex=True)
     df_price['Price'] = pd.to_numeric(df_price['Price'], errors='coerce')
-
-    # Drop rows where price conversion failed
     df_price = df_price.dropna(subset=['Price'])
-
     # Calculate average price per year
     annual_avg_price = df_price.groupby('Year')['Price'].mean().reset_index()
-
     # Log transform
     annual_avg_price['Log Price'] = np.log(annual_avg_price['Price'])
-    
     X = annual_avg_price['Year'].values.reshape(-1, 1)
     y = annual_avg_price['Log Price'].values
-
     # Train Regression Model (Linear on Log Price)
     model = LinearRegression()
     model.fit(X, y)
-
     return model, annual_avg_price
 
 def predict_price_2050(model, annual_avg_price):
@@ -181,24 +163,16 @@ def predict_price_2050(model, annual_avg_price):
     log_price_2050 = model.predict(year_2050)
     price_2050 = np.exp(log_price_2050)[0]
     print(f"Predicted Average Launch Price (2050): ${price_2050:,.2f}")
-
-    # Visualization (Plotting on Original Price Scale)
-    plt.figure(figsize=(10, 6))
     
-    # Plot historical data (Price)
+    # Visualization
+    plt.figure(figsize=(10, 6))
     sns.scatterplot(data=annual_avg_price, x='Year', y='Price', label='Historical Data', color='blue')
-
-    # Plot trend line (Exp of Linear Log Prediction)
     year_range = np.arange(annual_avg_price['Year'].min(), 2051).reshape(-1, 1)
     log_pred_line = model.predict(year_range)
     y_pred_line = np.exp(log_pred_line)
-
     plt.plot(year_range, y_pred_line, color='green', linestyle='--', linewidth=1, label='Trend Prediction')
-    
-    # Plot 2050 prediction
     plt.scatter(2050, price_2050, color='green', s=50, zorder=5,
                 label=f'2050 Prediction: ${price_2050:,.2f}')
-
     plt.title('Average Launch Price Trend')
     plt.xlabel('Year')
     plt.ylabel('Average Price ($)')
@@ -206,222 +180,170 @@ def predict_price_2050(model, annual_avg_price):
     plt.grid(True, alpha=0.3)
     plt.savefig('launch_price.png')
     plt.show()
-
     return price_2050
+
+def get_parameters():
+    m, al = model_for_launch(df_launch)
+    l_tot, l_max = predict_2050_fgi(m, al)
+    pm, ap = model_for_price(df_launch)
+    p_2050 = predict_price_2050(pm, ap)
+    return l_max, p_2050
+
+class Q1:
+    def __init__(self, FGI, C_RB):
+        self.NUM_SE_PORTS = 3
+        self.NUM_LAUNCH_LOCATIONS = 10
+        self.M = 1e8
+        self.MI = 125
+        self.FGI = FGI
+        self.C_RB = C_RB
+        self.C_RM = 5000    # Variable Cost per ton (Assumed cargo integration cost)
+        self.NUM_SE_PORTS = 3
+        self.Qeu = 179000   # Earth-Apex throughput (Tons/year)
+        self.Qed = 200000   # Apex-Moon throughput
+        self.Ce = 1000        # Unit Cost (per Ton) - Reasonable estimate for mature SE
+        self.b_factor = 0.05 # Fuel/Spares percentage
+
+        self.Qse = self.NUM_SE_PORTS * min(self.Qeu, self.Qed) # t/year
+        self.Cse = self.Ce + self.Ce * (1 - self.b_factor)
+
+        self.Qrocket = self.FGI * self.MI * self.NUM_LAUNCH_LOCATIONS # t/year
+        print(f"\n--- Parameters ---")
+        print(f"Target Mass M: {self.M/1e6} Million Tons")
+        print(f"SE Capacity: {self.Qse:,.0f} t/year")
+        print(f"Rocket Capacity (Total): {self.Qrocket:,.0f} t/year")
+
+    def calculate_scenario_metrics(self, alpha):
+        # alpha * M for SE and (1-alpha) * M for Rockets
+        # Time = max {a * M/Qse, (1-a)*M/Qrocket}
+        # Handle edge cases for 0 capacity if needed, but Qse/Qrocket > 0 typically
+        t_se = (alpha * self.M) / self.Qse if self.Qse > 0 else float('inf')
+        t_rocket = ((1 - alpha) * self.M) / self.Qrocket if self.Qrocket > 0 else float('inf')
+        
+        # If alpha is 0, t_se is 0 (not inf). If alpha is 1, t_rocket is 0.
+        if alpha == 0: t_se = 0
+        if alpha == 1: t_rocket = 0
+            
+        T = max(t_se, t_rocket)
+        
+        # Cost Formula
+        term1 = alpha * self.M * self.Cse
+        term2 = (1 - alpha) * self.M * self.C_RM
+        term3 = (1 - alpha) * self.M * self.C_RB / self.MI
+        C = term1 + term2 + term3
+        return T, C
+
+# Scheme 1: Mixed Integer Programming (Approximation via Linear Constraints)
+def optimize_scheme_1(solver, t_max):
+    # Constants
+    M = solver.M
+    Q1 = solver.Qse
+    Q2 = solver.Qrocket
+    alpha_values = np.linspace(0, 1, 1001)
+    results = []
     
-price_model, annual_avg_price = model_for_price(df_launch)
-price_2050 = predict_price_2050(price_model, annual_avg_price)
+    for val_a in alpha_values:
+        t_val, c_val = solver.calculate_scenario_metrics(val_a)
+        if (t_val <= t_max):
+            results.append({
+                'a': val_a,
+                'T': t_val,
+                'C': c_val
+            })
 
-# --- 1. Parameters & Variables ---
-M = 1e8  # 100 million tons
+    df = pd.DataFrame(results)
+    if df.empty:
+        return None, None, None, "Infeasible: No solutions meet the time constraint"
+    best_idx = df['C'].idxmin()
+    best_sol = df.loc[best_idx]
+    
+    return best_sol['a'], best_sol['T'], best_sol['C'], "Optimal"
 
-# Rockets (Scenario B)
-MI = 125       # Payload per annual launch slot (Tons)
-FGMAX_VAL = FGI    # Max annual launches per site
+# Scheme 2: Pareto Front with Normalization
+def optimize_scheme_2(solver, w1=0.5, w2=0.5):    
+    # Search Space
+    alpha_values = np.linspace(0, 1, 1001)
+    results = []
+    
+    for val_a in alpha_values:
+        t_val, c_val = solver.calculate_scenario_metrics(val_a)        
+        results.append({
+            'a': val_a,
+            'T': t_val,
+            'C': c_val,
+        })
+    df = pd.DataFrame(results)
+    
+    # Find Anchors
+    T_min = df['T'].min()
+    C_min = df['C'].min()
+    T_max = df['T'].max()
+    C_max = df['C'].max()
 
-# Costs & Reliability
-C_RB = price_2050     # Fixed Cost per annual launch slot (Predicted 2050 price)
-C_RM = 5000    # Variable Cost per ton (Assumed cargo integration cost)
-eta = 1        # Success rate (assumed 1 for deterministic model)
+    df['Z_time'] = (df['T'] - T_min) / (T_max - T_min)
+    df['Z_cost'] = (df['C'] - C_min) / (C_max - C_min)
+    df['Z'] = w1 * df['Z_time'] + w2 * df['Z_cost']
 
-# Space Elevator (Scenario A)
-NUM_SE_PORTS = 3
-Qeu = 179000   # Earth-Apex throughput (Tons/year)
-Qed = 200000   # Apex-Moon throughput
-Ce = 1000        # Unit Cost (per Ton) - Reasonable estimate for mature SE
+    # Find Optimal
+    best_idx = df['Z'].idxmin()
+    best_sol = df.loc[best_idx]
+    
+    return df, best_sol['a'], best_sol['T'], best_sol['C']
 
-b_factor = 0.05 # Fuel/Spares percentage
+# --- Execution ---
+if __name__ == "__main__":
+    launch_max, price_2050 = get_parameters()
+    q1_solver = Q1(FGI=launch_max, C_RB=price_2050)
 
-# Derived Calculations
-# Rate of Space Elevator System
-Rate_SE = NUM_SE_PORTS * min(Qeu, Qed)
+    # Scenario A & B
+    t_a, c_a = q1_solver.calculate_scenario_metrics(1.0)
+    print(f"\nScenario A (SE Only): Time = {t_a:.2f} y, Cost = {c_a/1e9:.2f} B, a = 1.00")
 
-# Cost Unit for SE (Scenario A & C)
-# Ctot_a = Ce * M + Ce * (1-b) * M  => Unit Cost per Ton = Ce + Ce*(1-b)
-C_unit_SE = Ce + Ce * (1 - b_factor)
+    t_b, c_b = q1_solver.calculate_scenario_metrics(0.0)
+    print(f"Scenario B (Rockets Only): Time = {t_b:.2f} y, Cost = {c_b/1e9:.2f} B, a = 0.00")
 
-# Rocket Capacities (Scenario B & C)
-# Using fixed capacity as requested
-FG_MAX_ARR = np.full(10, FGMAX_VAL)
-MI_ARR = np.full(10, MI)
+    # Scenario C
+    # Scheme 1
+    target_time = 120
+    print(f"\n--- Scheme 1: Constrained Optimization (MILP Logic) ---")
+    print(f"Objective: Min Cost s.t. Time <= {target_time} years")
+    opt_a, opt_t, opt_c, status = optimize_scheme_1(q1_solver, target_time)
 
-print(f"\n--- Parameters ---")
-print(f"Target Mass M: {M/1e6} Million Tons")
-print(f"SE Rate: {Rate_SE} Tons/Year; SE Unit Cost: {C_unit_SE}")
-print(f"Rocket Max Rate: {np.sum(FG_MAX_ARR * MI_ARR)} Tons/Year (Max Launches: {np.sum(FG_MAX_ARR)})")
-
-def calculate_scenario_metrics(fgi_array):
-    # Rocket Rate
-    rate_rocket = np.sum(fgi_array * MI_ARR)
-
-    # Total Rate (SE + Rocket)
-    rate_total = Rate_SE + rate_rocket
-
-    if rate_total <= 0:
-        return float('inf'), float('inf'), 0
-
-    # Time (User Formula: Tc = M / (Rate_R + Rate_SE))
-    Tc = M / rate_total
-
-    # Cost Calculation
-    # Ratio a = Mass_SE / Total_Mass = Rate_SE / Total_Rate
-    if rate_total > 0:
-        a = Rate_SE / rate_total
+    if opt_a is not None:
+        print(f"  Status: {status}")
+        print(f"  Optimal a (SE Share): {opt_a:.4f}")
+        print(f"  Resulting Time: {opt_t:.2f} years")
+        print(f"  Resulting Cost: ${opt_c/1e9:.2f} Billion")
     else:
-        a = 0
+        print(f"  Status: {status}")
 
-    # Cost Formula C (User provided):
-    # Ctot = a * M * Cetot + (1-a) * M * Crm + Crb * sum(fgi)
-    # Note: Cetot here corresponds to our C_unit_SE
+    # Scheme 2
+    print(f"\n--- Scheme 2: Pareto Front Normalization ---")
+    w1, w2 = 0.5, 0.5
+    df_pareto, opt_a, opt_t, opt_c = optimize_scheme_2(q1_solver, w1, w2)
 
-    term1 = a * M * C_unit_SE
-    term2 = (1 - a) * M * C_RM
-    term3 = (1 - a) * C_RB * np.sum(fgi_array)
+    print(f"\nPareto Optimal Solution (w1={w1}, w2={w2}):")
+    print(f"  Parameter a: {opt_a:.4f}")
+    print(f"  Time: {opt_t:.2f} y")
+    print(f"  Cost: ${opt_c/1e9:.2f} B")
 
-    Ctot = term1 + term2 + term3
+    # Plot
+    plt.figure(figsize=(10, 6))
+    sc = plt.scatter(df_pareto['T'], df_pareto['C'], 
+                     c=df_pareto['a'], cmap='viridis', 
+                     label='Pareto Frontier')
+    plt.colorbar(sc, label='SE ratio (a)')
+    plt.scatter(opt_t, opt_c, color='red', marker='*', s=200,
+                label=f"Scenario C (t={opt_t:.2f}y c={opt_c/1e9:.2f}b a={opt_a:.2f})")
+    plt.scatter(t_a, c_a, color='green', marker='*', s=200,
+                label=f"Scenario A (t={t_a:.2f}y c={c_a/1e9:.2f}b a=1.0)")
+    plt.scatter(t_b, c_b, color='blue', marker='*', s=200,
+                label=f"Scenario B (t={t_b:.2f}y c={c_b/1e9:.2f}b a=0.0)")
 
-    return Tc, Ctot, a
-
-def optimize_min_cost(max_time_years):
-    # 1. Check Feasibility
-    min_rate_needed = M / max_time_years
-    rocket_rate_needed = min_rate_needed - Rate_SE
-
-    if rocket_rate_needed <= 0:
-        # SE is sufficient. No rockets needed.
-        return np.zeros(10), 0
-
-    # 2. Setup MILP
-    # Variables: fgi (10 variables)
-    # Objective Proxy: Minimize sum(fgi).
-    # Rationale: Cost increases with fgi (Fixed Cost term + Variable Cost term since Rocket Unit Cost > SE Unit Cost).
-    # So minimizing fgi minimizes Cost while satisfying rate.
-
-    num_vars = 10
-    c = np.ones(num_vars) # Minimize sum of launches
-
-    # Constraints: sum(fgi * mi) >= rocket_rate_needed
-    # LinearConstraint (A, lb, ub)
-    lc = LinearConstraint(MI_ARR, lb=rocket_rate_needed, ub=np.inf)
-
-    bounds = Bounds(lb=0, ub=FG_MAX_ARR)
-
-    res = milp(c=c, constraints=lc, integrality=np.ones(num_vars), bounds=bounds)
-
-    if res.success:
-        return res.x, res.fun
-    else:
-        return None, None
-
-# Run Baseline Solvers
-# Scenario A: SE Only (fgi = 0)
-tc_se, cost_se, a_se = calculate_scenario_metrics(np.zeros(10))
-print(f"\nScenario A (SE Only): Time = {tc_se:.2f} y, Cost = {cost_se/1e9:.2f} B, a = {a_se:.2f}")
-
-# Scenario B: Rockets Only (Manual calculation, assuming SE is disabled and Max Rockets used)
-rate_rocket_max_total = np.sum(FG_MAX_ARR * MI_ARR)
-if rate_rocket_max_total > 0:
-    tc_b_print = M / rate_rocket_max_total
-    # Cost (a=0): 1 * M * C_RM + Fixed Costs for Max Launches
-    cost_b_print = M * C_RM + C_RB * np.sum(FG_MAX_ARR)
-    print(f"Scenario B (Rockets Only): Time = {tc_b_print:.2f} y, Cost = {cost_b_print/1e9:.2f} B, a = 0.00")
-else:
-    print(f"Scenario B (Rockets Only): Infeasible (0 Capacity)")
-
-# Scheme 1: MIP
-target_time_limit = 180 # Example constraint
-print(f"\nScheme 1: MIP (Time <= {target_time_limit} years)")
-opt_fgi, _ = optimize_min_cost(target_time_limit)
-if opt_fgi is not None:
-    t_opt, c_opt, a_opt = calculate_scenario_metrics(opt_fgi)
-    print(f"  Result: Time = {t_opt:.2f} y, Cost = {c_opt/1e9:.2f} B")
-    print(f"  Parameter a (SE Share): {a_opt:.4f}")
-    print(f"  Rocket Launches: {np.sum(opt_fgi)}")
-else:
-    print("  Infeasible under time constraint.")
-
-# Pareto Front
-print(f"\nScheme 2: Pareto Front Generation")
-results = []
-# Sweep total launches from 0 to Max
-total_fg_limit = int(np.sum(FG_MAX_ARR))
-step_size = max(1, int(total_fg_limit / 50)) 
-
-for n_launch in range(0, total_fg_limit + 1, step_size):
-    # Distribute n_launch uniformly/greedy
-    curr_fgi = np.zeros(10)
-    rem = n_launch
-    for i, limit in enumerate(FG_MAX_ARR):
-        take = min(rem, limit)
-        curr_fgi[i] = take
-        rem -= take
-        if rem <= 0: break
-    
-    t, c, a_param = calculate_scenario_metrics(curr_fgi)
-    results.append([t, c, a_param, n_launch])
-    
-df_pareto = pd.DataFrame(results, columns=['Tc', 'Ctot', 'a', 'Launches'])
-
-# Normalized Objective Z
-# Min Z = w * Norm(T) + (1-w) * Norm(C)
-t_min, t_max = df_pareto['Tc'].min(), df_pareto['Tc'].max()
-c_min, c_max = df_pareto['Ctot'].min(), df_pareto['Ctot'].max()
-
-w = 0.5
-df_pareto['Z'] = w * (df_pareto['Tc'] - t_min)/(t_max - t_min) + \
-                 (1-w) * (df_pareto['Ctot'] - c_min)/(c_max - c_min)
-                 
-best_idx = df_pareto['Z'].idxmin()
-best_sol = df_pareto.loc[best_idx]
-
-print(f"\nPareto Optimal (w={w}):")
-print(f"  Time: {best_sol['Tc']:.2f} y")
-print(f"  Cost: {best_sol['Ctot']/1e9:.2f} B")
-print(f"  Parameter a: {best_sol['a']:.4f}")
-
-# Plot
-plt.figure(figsize=(12, 7))
-
-# 1. Pareto Points (Scenario C sweep)
-# Filter for finite values to ensure plot stability
-valid_mask = np.isfinite(df_pareto['Tc']) & np.isfinite(df_pareto['Ctot'])
-
-valid_a = df_pareto.loc[valid_mask, 'a']
-if not valid_a.empty:
-    a_min, a_max = valid_a.min(), valid_a.max()
-else:
-    a_min, a_max = 0, 1
-
-sc = plt.scatter(df_pareto.loc[valid_mask, 'Tc'], df_pareto.loc[valid_mask, 'Ctot'], 
-                 c=df_pareto.loc[valid_mask, 'a'], 
-                 cmap='viridis', vmin=a_min, vmax=a_max, alpha=0.6, s=15, label='Scenario C Sweep')
-plt.colorbar(sc, label='Parameter a (SE Share)')
-
-# 2. Optimal C Point
-label_c = f"Scenario C Optimal (a={best_sol['a']:.2f}, {best_sol['Tc']:.1f}y, {best_sol['Ctot']/1e9:.1f}B)"
-# Plot the optimal point using its 'a' value for color, edgecolors to make it stand out
-plt.scatter(best_sol['Tc'], best_sol['Ctot'], c=best_sol['a'], cmap='viridis', s=150, marker='*', label=label_c, linewidths=1.5, vmin=a_min, vmax=a_max)
-
-# Set Limits to Zoom In
-# Align scaling with the visible Pareto line (Scenario C sweep data)
-valid_tc = df_pareto.loc[valid_mask, 'Tc']
-valid_cost = df_pareto.loc[valid_mask, 'Ctot']
-
-if not valid_tc.empty:
-    min_x, max_x = valid_tc.min(), valid_tc.max()
-    min_y, max_y = valid_cost.min(), valid_cost.max()
-
-    # Add small margin
-    margin_x = (max_x - min_x) * 0.05
-    margin_y = (max_y - min_y) * 0.05
-    
-    plt.xlim(min_x - margin_x, max_x + margin_x)
-    plt.ylim(min_y - margin_y, max_y + margin_y)
-
-plt.title('Pareto Front Optimization: Time vs Cost (Color=a)')
-plt.xlabel('Time (Years)')
-plt.ylabel('Total Cost')
-plt.legend()
-plt.grid(True, alpha=0.3)
-plt.savefig('pareto.png')
-plt.show()
+    plt.title('Pareto Frontier: Time vs Cost')
+    plt.xlabel('Time (Years)')
+    plt.ylabel('Total Cost ($)')
+    plt.grid(True, alpha=0.3)
+    plt.legend()
+    plt.savefig('pareto.png')
+    plt.show()

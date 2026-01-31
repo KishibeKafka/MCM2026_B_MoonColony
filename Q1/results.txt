@@ -1,22 +1,24 @@
-Predicted FGI is 110
+Predicted total launch times is 1100, max launch times is 593
 Predicted Average Launch Price (2050): $21,464,577.32
 
 --- Parameters ---
 Target Mass M: 100.0 Million Tons
-SE Rate: 537000 Tons/Year; SE Unit Cost: 1950.0
-Rocket Max Rate: 137500 Tons/Year (Max Launches: 1100)
+SE Capacity: 537,000 t/year
+Rocket Capacity (Total): 741,250 t/year
 
 Scenario A (SE Only): Time = 186.22 y, Cost = 195.00 B, a = 1.00
-Scenario B (Rockets Only): Time = 727.27 y, Cost = 523.61 B, a = 0.00
+Scenario B (Rockets Only): Time = 134.91 y, Cost = 17671.66 B, a = 0.00
 
-Scheme 1: MIP (Time <= 180 years)
-  Result: Time = 179.98 y, Cost = 205.33 B
-  Parameter a (SE Share): 0.9665
-  Rocket Launches: 149.0
+--- Scheme 1: Constrained Optimization (MILP Logic) ---
+Objective: Min Cost s.t. Time <= 120 years
+  Status: Optimal
+  Optimal a (SE Share): 0.6440
+  Resulting Time: 119.93 years
+  Resulting Cost: $6416.69 Billion
 
-Scheme 2: Pareto Front Generation
+--- Scheme 2: Pareto Front Normalization ---
 
-Pareto Optimal (w=0.5):
-  Time: 165.84 y
-  Cost: 229.62 B
-  Parameter a: 0.8905
+Pareto Optimal Solution (w1=0.5, w2=0.5):
+  Parameter a: 0.4200
+  Time: 78.25 y
+  Cost: $10331.46 B

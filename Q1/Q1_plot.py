@@ -2,407 +2,254 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-from math import pi
+from matplotlib.ticker import FuncFormatter
 
-# Reuse logic from Q1.py but simplified for plotting
-# We can't easily import Q1 because it runs code on import.
-# So we define the parameters directly or calculate them.
+# Import Q1 class and helper functions
+from Q1 import Q1, get_parameters, optimize_scheme_2
 
 # --- Graph Settings ---
 plt.rcParams['font.family'] = 'SimHei'
 plt.rcParams['axes.unicode_minus'] = False
-sns.set_style("whitegrid", {'font.sans-serif': ['SimHei', 'Arial']})
+sns.set_style("white", {'font.sans-serif': ['SimHei', 'Arial']})
 
-# --- HARDCODED ESTIMATES FROM Q1 (To ensure stability) ---
-# Based on Q1.py logic:
-# 2050 FGI Prediction: ~ 7000 (example, we will re-calculate if needed, but let's use a robust value or the logic)
-# Let's quickly re-implement the prediction prediction to be precise.
-
-from sklearn.linear_model import LinearRegression
-from load_data import load_data
-
-try:
-    df_launch, _, _ = load_data()
-    
-    # 1. Calculate FGI (Launch Capacity)
-    target_keywords = ['Alaska', 'CA', 'TX', 'FL', 'Virginia', 'Kazakhstan', 'French Guiana', 'Satish Dhawan', 'Taiyuan', 'Peninsula']
-    def check_loc(s):
-        return any(k in str(s) for k in target_keywords)
-    
-    df_tgt = df_launch[df_launch['Location'].apply(check_loc)].copy()
-    annual_counts = df_tgt.groupby('Year').size().reset_index(name='Count')
-    
-    # Piecewise Regression for Total
-    X = annual_counts[['Year']].values
-    y = annual_counts['Count'].values
-    
-    # Simple linear filter for post-2015 to catch the trend
-    mask = X.flatten() >= 2015
-    X_trend = X[mask]
-    y_trend = y[mask]
-    
-    if len(X_trend) > 2:
-        model_fgi = LinearRegression()
-        model_fgi.fit(X_trend, y_trend)
-        fgi_pred_total = model_fgi.predict([[2050]])[0]
-        FGI_VAL = fgi_pred_total / 10.0 # Per site
-    else:
-        FGI_VAL = 110 # Fallback
-        
-    # 2. Calculate Price 2050
-    df_price = df_launch.dropna(subset=['Price']).copy()
-    df_price['Price'] = pd.to_numeric(df_price['Price'].astype(str).str.replace(r'[$,]', '', regex=True), errors='coerce')
-    avg_price = df_price.dropna().groupby('Year')['Price'].mean().reset_index()
-    
-    # Log linear model
-    X_p = avg_price['Year'].values.reshape(-1, 1)
-    y_p = np.log(avg_price['Price'].values)
-    model_price = LinearRegression()
-    model_price.fit(X_p, y_p)
-    price_2050 = np.exp(model_price.predict([[2050]]))[0]
-    
-except Exception as e:
-    print(f"Data loading failed, using defaults: {e}")
-    FGI_VAL = 425 # Fallback from typical runs
-    price_2050 = 2.1e7 # ~21 Million
-
-# --- Model Parameters ---
-M = 1e8  # 100 Million Tons
-MI = 125 # Tons per launch
-FG_MAX = int(FGI_VAL) # Max launches per site
-NUM_SITES = 10
-MAX_ROCKET_RATE = NUM_SITES * FG_MAX * MI
-
-# Costs
-C_RB = price_2050
-C_RM = 5000
-Ce_base = 1000
-b = 0.05
-C_SE_Unit = Ce_base + Ce_base * (1 - b) # ~1950
-
-# SE Capacity
-NUM_SE = 3
-Qeu = 179000
-Qed = 200000
-Rate_SE = NUM_SE * min(Qeu, Qed) # ~ 537,000
-
-# ==============================================================================
-# Helper Function: Calculate Metrics
-# ==============================================================================
-def calc_metrics(rocket_launch_total, m_i=MI, c_e_unit=C_SE_Unit, c_rb=C_RB, c_rm=C_RM):
-    rate_r = rocket_launch_total * m_i
-    rate_tot = Rate_SE + rate_r
-    
-    if rate_tot == 0: return float('inf'), float('inf'), 0
-    
-    T = M / rate_tot
-    a = Rate_SE / rate_tot
-    
-    # Cost
-    # C = a*M*Ce + (1-a)*M*Crm + Launches*Crb
-    # Note: 1-a = Rate_R / Rate_Tot
-    # Launches = Rate_R / mi
-    
-    cost = (a * M * c_e_unit) + \
-           ((1 - a) * M * c_rm) + \
-           (rocket_launch_total * c_rb) * (T) # Wait, is Fixed Cost per Year or Per Launch?
-           # Q1.py: term3 = (1 - a) * C_RB * np.sum(fgi_array)  <-- This looks like "Total Fixed Cost"? 
-           # Let's check Q1 dimensions.
-           # C_RB is "Fixed Cost per Launch Slot" (implies per year capacity cost?) or "Cost per Launch"?
-           # Usually "Launch Cost" is per launch event. 
-           # If Time = T years. Total Launches = (Launches_Per_Year) * T.
-           # Q1 Formula logic:
-           # term3 = (1-a) * C_RB ... This is weird in Q1. 
-           # Let's stick to standard interpretation:
-           # Total Cost = (Mass_SE * Cost_SE) + (Mass_Rocket * Cost_Rocket_Var) + (Total_Launches * Cost_Per_Launch)
-           # Total Launches = (Rate_Rocket / MI) * T
-           # Mass_Rocket = (1-a) * M
-           
-    # Let's re-verify Q1 logic carefully.
-    # Q1: term3 = (1 - a) * C_RB * np.sum(fgi_array)
-    # This implies C_RB is a cost factor scaled by mass fraction? No.
-    # If the user formula is taken literally from an attachment I can't see, I should follow Q1.py
-    # Q1.py:
-    # term1 = a * M * C_unit_SE
-    # term2 = (1 - a) * M * C_RM
-    # term3 = (1 - a) * C_RB * np.sum(fgi_array)  -> This seems dimensionally suspect if sum(fgi) is count.
-    # Is it: (1-a) comes from redistribution?
-    # Let's assume standard physics/economics:
-    # Cost = M_se * Unit_se + M_rocket * Unit_var_rocket + N_launches * Fixed_per_launch
-    # N_launches = (Mass_rocket / MI) ? No, fgi is launches per year.
-    # So N_launches_total = sum(fgi) * T.
-    # Let's use T.
-    
-    # Recalculating Cost based on Physical Reality (safest bet for plot):
-    # Mass_SE = a * M
-    # Mass_R = (1-a) * M
-    # Cost_SE = Mass_SE * c_e_unit
-    # Cost_R_Var = Mass_R * c_rm
-    # Cost_R_Fix = (rate_r / m_i) * T * c_rb  (= Total Launches * Price)
-    
-    cost_phy = (a * M * c_e_unit) + ((1 - a) * M * c_rm) + (rocket_launch_total * T * c_rb)
-    
-    return T, cost_phy, a
-
-# ==============================================================================
-# Plot 1: Resource Allocation Surface (Time/Cost vs a)
-# ==============================================================================
-def plot_resource_allocation():
-    # To get a range of a from ~0 to 1, we need to vary Rocket Rate.
-    # Rate_SE is fixed. 
-    # a = Rate_SE / (Rate_SE + Rate_R)
-    # If Rate_R = 0, a = 1.
-    # If Rate_R is huge, a -> 0.
-    
-    # Generate Rocket Launch counts from 0 to something large (e.g. 5x Max current capacity to show trend)
-    launches = np.linspace(0, MAX_ROCKET_RATE/MI * 5, 200)
-    
-    a_vals = []
+# -----------------------------------------------------------
+# 1. Resource Allocation Surface (Dual-Axis Plot)
+# -----------------------------------------------------------
+def plot_resource_allocation(solver):
+    print("Generating Resource Allocation Plot...")
+    alpha_values = np.linspace(0, 1, 500)
     times = []
     costs = []
     
-    for l in launches:
-        t, c, a = calc_metrics(l)
-        a_vals.append(a)
+    for a in alpha_values:
+        t, c = solver.calculate_scenario_metrics(a)
         times.append(t)
         costs.append(c)
         
-    # Sort by 'a' to plot correctly (a goes from 1 down to 0 as launches increase)
-    # We want X axis to be a (0 to 1)
-    
-    df = pd.DataFrame({'a': a_vals, 'Time': times, 'Cost': np.array(costs)/1e12}) # Trillions or Billions? 
-    # M=1e8, C ~ 2000 -> 2e11 (200 Billion). So 1e9 is better unit.
-    df['Cost'] = np.array(costs) / 1e9
-    
-    df = df.sort_values('a')
+    times = np.array(times)
+    costs = np.array(costs)
+    costs_b = costs / 1e9  # Billion USD
     
     fig, ax1 = plt.subplots(figsize=(10, 6))
-    
+
     # Plot Time (Red)
-    # Filter high times for readability
-    df_visible = df[df['Time'] < 500] 
-    
-    ax1.plot(df_visible['a'], df_visible['Time'], 'r-', linewidth=3, label='Time to Complete ($T$)')
-    ax1.set_xlabel('Allocation to Space Elevator ($a$)', fontsize=12)
-    ax1.set_ylabel('Total Time (Years)', color='r', fontsize=12)
-    ax1.tick_params(axis='y', labelcolor='r')
-    ax1.set_xlim(0, 1.0)
-    ax1.invert_xaxis() # Optional? No, standard is 0->1.
-    # The curve will likely perform asymptotic behavior near a=0 (if SE rate was 0) but here SE is constant.
-    # As a->1 (Rockets->0), Time -> M/Rate_SE.
-    # As a->0 (Rockets->Inf), Time -> 0.
-    
+    color_t = 'tab:red'
+    ax1.set_xlabel('Proportion of Cargo by Space Elevator ($a$)', fontsize=12)
+    ax1.set_ylabel('Time to Completion (Years)', color=color_t, fontsize=12)
+    ax1.plot(alpha_values, times, color=color_t, linewidth=2.5, label='Time')
+    ax1.tick_params(axis='y', labelcolor=color_t)
+    ax1.grid(True, linestyle='--', alpha=0.3)
+
     # Plot Cost (Blue)
-    ax2 = ax1.twinx()
-    ax2.plot(df_visible['a'], df_visible['Cost'], 'b-', linewidth=3, label='Total Cost ($C_{tot}$)')
-    ax2.set_ylabel('Total Cost (Billion $)', color='b', fontsize=12)
-    ax2.tick_params(axis='y', labelcolor='b')
+    ax2 = ax1.twinx() 
+    color_c = 'tab:blue'
+    ax2.set_ylabel('Total Cost (Billion USD)', color=color_c, fontsize=12)
+    ax2.plot(alpha_values, costs_b, color=color_c, linewidth=2.5, linestyle='-', label='Cost')
+    ax2.tick_params(axis='y', labelcolor=color_c)
     
-    # Mark Optimal Point or typical operating point
-    # We found a ~ 0.96 in Q1.
-    opt_a = 0.9665
-    # Interpolate values
-    opt_time = np.interp(opt_a, df['a'], df['Time'])
-    opt_cost = np.interp(opt_a, df['a'], df['Cost'])
+    # Highlight Optimal intersection roughly (visual guide)
+    # The actual optimal depends on weights, but visual intersection is clear trade-off
     
-    ax1.axvline(opt_a, color='gray', linestyle='--', alpha=0.5)
-    ax1.text(opt_a - 0.02, opt_time + 10, f'Optimal $a \\approx {opt_a}$', rotation=90, verticalalignment='bottom')
-    
-    plt.title('FIG 1: Resource Allocation Trade-off (Time vs Cost)', fontsize=14)
-    
-    # Custom Legend
-    lines1, labels1 = ax1.get_legend_handles_labels()
-    lines2, labels2 = ax2.get_legend_handles_labels()
-    ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper left') # Upper Center maybe better
-    
-    plt.grid(True, alpha=0.3)
-    plt.savefig('resource_allocation.png', dpi=300)
-    print("Plot 1 Saved.")
+    plt.title('Trade-off Analysis: Time vs Cost by Space Elevator Ratio ($a$)', fontsize=14)
+    fig.tight_layout()
+    plt.savefig('resource_allocation.png')
+    plt.show()
 
-# ==============================================================================
-# Plot 2: Sensitivity Analysis Radar Chart
-# ==============================================================================
-def plot_sensitivity_radar():
-    # Base Case
-    # Assume we operate at Max Capacity for Scenario C or Optimal?
-    # Usually sensitivity is done on the Optimized solution.
-    # Let's assume a fixed strategy of "Max Rockets allowed" or "Optimal Time = 20 years"?
-    # Let's just fix launches to a reasonable number, e.g., 5000 total/year
-    base_launches = 5000
-    base_t, base_c, _ = calc_metrics(base_launches)
+# -----------------------------------------------------------
+# 2. Sensitivity Analysis (Radar Chart)
+# -----------------------------------------------------------
+def plot_sensitivity_radar(FGI_base, Price_base):
+    print("Generating Sensitivity Radar Chart...")
     
-    params = ['Ce_Unit', 'MI', 'b_factor', 'FG_MAX']
-    # FG_MAX doesn't directly enter `calc_metrics` unless we cap `base_launches`.
-    # Let's say we operate AT CAPACITY. So `launches = NUM_SITES * FG_MAX`
-    
-    def evaluate_cost(p_name, multiplier):
-        # Create temp params
-        l_mi = MI
-        l_ce = C_SE_Unit
-        l_fg = FG_MAX
-        l_b = b # Not directly used in metric recalc unless we recalc C_SE_Unit
-        
-        # Apply change
-        if p_name == 'Ce_Unit': l_ce *= multiplier
-        if p_name == 'MI': l_mi *= multiplier
-        if p_name == 'FG_MAX': l_fg *= multiplier
-        
-        # Recalc derived
-        # If b changed, C_SE_Unit changes
-        # But we treated Ce_Unit as the param. Let's stick to C_SE_Unit as the proxy for Elevator Cost.
-        
-        current_launches = NUM_SITES * l_fg
-        
-        # Recalculate cost
-        _, cost, _ = calc_metrics(current_launches, m_i=l_mi, c_e_unit=l_ce)
-        return cost
+    # Baseline
+    solver_base = Q1(FGI=FGI_base, C_RB=Price_base)
+    # _, _, _, cost_base = optimize_scheme_2(solver_base, 0.5, 0.5)
+    # Use explicit optimal finder from Scheme 1 logic or Scheme 2 (should be similar for min cost)
+    # Or simply calculate cost of 'Current Optimal' configuration? 
+    # Let's re-optimize for fair comparison
+    _, _, _, cost_base = optimize_scheme_2(solver_base, 0.5, 0.5)
 
-    # Calculate Sensitivity (Elasticity approximation: % Change in Cost for +10% Change in Param)
-    sensitivities = []
     
-    # 1. Ce Sensitivity
-    c_plus = evaluate_cost('Ce_Unit', 1.1)
-    sens_ce = (c_plus - base_c) / base_c
-    sensitivities.append(sens_ce)
+    # Parameters to test: Ce, MI, b, FGI
+    # We will test +50% improvement (Cost reduction or Tech increase)
+    # "Improvement" directions:
+    # Ce (Cost SE): -50%
+    # MI (Payload): +50%
+    # b (Maint): -50% (from 0.05 to 0.025)
+    # FGI (Freq): +50%
     
-    # 2. MI Sensitivity (Payload) -> Higher MI means faster time, usually lower cost?
-    # But here we fixed launches.
-    # If MI increases +10%, Rate increases, Time decreases, Total Fixed Cost decreases (fewer years).
-    c_plus = evaluate_cost('MI', 1.1)
-    sens_mi = (c_plus - base_c) / base_c
-    sensitivities.append(sens_mi)
+    scenarios = {
+        'SE Unit Cost ($C_e$)':   {'param': 'Ce',    'change': -0.5}, 
+        'Rocket Payload ($m_i$)': {'param': 'MI',    'change': +0.5},
+        'Maintenance ($b$)':      {'param': 'b_factor', 'change': -0.5},
+        'Launch Freq ($fg_{max}$)': {'param': 'FGI',   'change': +0.5}
+    }
     
-    # 3. b Factor (affects C_SE_Unit)
-    # Base b=0.05. +10% b means b=0.055. Cost Unit decreases? 
-    # C_unit = Ce + Ce(1-b). If b increases, (1-b) decreases, Cost decreases.
-    # Let's simulate change in b directly.
-    def eval_b(mult):
-        new_b = b * mult
-        new_c_unit = Ce_base + Ce_base * (1 - new_b)
-        base_l = NUM_SITES * FG_MAX
-        _, cost, _ = calc_metrics(base_l, c_e_unit=new_c_unit)
-        return cost
+    impacts = []
+    labels = []
+    
+    for name, conf in scenarios.items():
+        # Create temp solver with modified param
+        # Need to manually poke the Q1 class since params are processed in __init__
+        # Strategy: Re-instantiate Q1 with hacked inputs or modify attributes + recalc
         
-    c_plus = eval_b(1.1)
-    sens_b = (c_plus - base_c) / base_c
-    sensitivities.append(sens_b)
-    
-    # 4. FG_MAX (Frequency)
-    # More rockets -> Much higher cost usually (because C_RB is huge), but faster.
-    c_plus = evaluate_cost('FG_MAX', 1.1)
-    sens_fg = (c_plus - base_c) / base_c
-    sensitivities.append(sens_fg)
-    
-    # Data for Radar
-    # We plot Absolute Sensitivity Magnitude to show "Importance"
-    values = [abs(x)*100 for x in sensitivities] # Percent impact
-    # Closure
-    values += values[:1]
-    
-    angles = [n / float(len(params)) * 2 * pi for n in range(len(params))]
-    angles += angles[:1]
-    
-    fig, ax = plt.subplots(figsize=(6, 6), subplot_kw=dict(polar=True))
-    ax.plot(angles, values, linewidth=2, linestyle='solid', color='purple')
-    ax.fill(angles, values, 'purple', alpha=0.1)
-    
-    plt.xticks(angles[:-1], [
-        'SE Cost ($C_e$)', 
-        'Rocket Payload ($m_i$)', 
-        'Fuel Factor ($b$)', 
-        'Launch Freq ($fg_{max}$)'
-    ], fontsize=10)
-    
-    # --- Modification: Finer Grid Steps and Range ---
-    # Determine range
-    max_val = max(values)
-    
-    # "adjust limit to 60-80"
-    ax.set_ylim(60, 80)
-    
-    # Grid steps
-    ticks = np.linspace(60, 80, 5) 
-    ax.set_yticks(ticks)
-    
-    plt.title('FIG 2: Sensitivity Analysis (Impact on Total Cost)', y=1.08, fontsize=14)
-    
-    plt.savefig('radar.png', dpi=300)
-    print("Plot 2 Saved.")
+        # New Values - Initialize with BASE
+        fgi_new = FGI_base
+        solver_new = Q1(FGI=FGI_base, C_RB=Price_base)
+        
+        # Apply Modification
+        if conf['param'] == 'FGI':
+             # Re-init purely because FGI affects Qrocket in __init__
+            fgi_new = FGI_base * (1 + conf['change'])
+            solver_new = Q1(FGI=fgi_new, C_RB=Price_base)
 
-# ==============================================================================
-# Plot 3: Cumulative Delivery Progress
-# ==============================================================================
-def plot_cumulative_progress():
-    # Year limit
-    max_year = 200 # Avoid infinite lines
-    years = np.arange(0, max_year + 1)
-    
-    # Scenario A: SE Only
-    rate_a = Rate_SE
-    progress_a = np.minimum(rate_a * years, M)
-    
-    # Scenario B: Rockets Only (Max)
-    # Using FG_MAX global
-    rate_b = NUM_SITES * FG_MAX * MI
-    progress_b = np.minimum(rate_b * years, M)
-    
-    # Scenario C: Combined
-    rate_c = rate_a + rate_b # Full max capacity
-    progress_c_se = rate_a * years
-    progress_c_rocket = rate_b * years
-    
-    # For stacked, we need to cap the sum at M
-    total_c = progress_c_se + progress_c_rocket
-    mask = total_c <= M
-    # Find cutoff index
-    cutoff_idx = np.searchsorted(total_c, M)
-    if cutoff_idx < len(years):
-        total_c[cutoff_idx:] = M
-        # Adjust components proportionally or just clamp?
-        # Visual stack: just clamp components logic is messy.
-        # Simply: Plot until complete.
-        pass
+        elif conf['param'] == 'Ce':
+            solver_new.Ce = solver_base.Ce * (1 + conf['change'])
+            # Recalc dependent
+            solver_new.Cse = solver_new.Ce + solver_new.Ce * (1 - solver_new.b_factor)
+            
+        elif conf['param'] == 'MI':
+            solver_new.MI = solver_base.MI * (1 + conf['change'])
+            # Recalc dependent Qrocket = FGI * MI * Locs
+            solver_new.Qrocket = solver_new.FGI * solver_new.MI * solver_new.NUM_LAUNCH_LOCATIONS
+            # Also affects Cost? Term3 = ... * C_RB / MI. Yes.
+            
+        elif conf['param'] == 'b_factor':
+            solver_new.b_factor = solver_base.b_factor * (1 + conf['change'])
+            # Recalc dependent
+            solver_new.Cse = solver_new.Ce + solver_new.Ce * (1 - solver_new.b_factor)
+            
+        # Get new optimized cost
+        _, _, _, cost_new = optimize_scheme_2(solver_new, 0.5, 0.5)
         
-    # Trim arrays to completion
-    # Find max Time needed among all
-    # T_a = M/Rate_SE ~ 186 years
-    T_max_plot = 200 # Zoom in a bit
+        # Calculate % Change in Cost (Expected negative for improvement)
+        pct_change = (cost_new - cost_base) / cost_base * 100
+        # We plot magnitude of savings? Or pure change?
+        # Let's plot "Sensitivity Score" = Abs(% Change in Total Cost) per 20% change
+        impacts.append(abs(pct_change))
+        labels.append(name)
+        print(f"  {name}: {pct_change:.2f}% Cost Change")
+
+    # Radar Plot
+    # Close the loop
+    values = impacts + [impacts[0]]
+    angles = np.linspace(0, 2 * np.pi, len(labels), endpoint=False).tolist()
+    angles += [angles[0]]  # Close loop
     
-    years_plot = np.arange(0, T_max_plot, 1)
+    fig, ax = plt.subplots(figsize=(8, 8), subplot_kw=dict(polar=True))
     
-    # Re-calc for smooth lines
-    prog_a =  Rate_SE * years_plot / 1e6 # Million Tons
-    prog_b =  rate_b * years_plot / 1e6
-    prog_c_se = Rate_SE * years_plot / 1e6
-    prog_c_rocket = rate_b * years_plot / 1e6
+    # Draw one axe per variable + labels
+    plt.xticks(angles[:-1], labels, size=12)
     
+    # Draw ylabels
+    ax.set_rlabel_position(0)
+    # plt.yticks([5, 10, 15, 20], ["5%", "10%", "15%", "20%"], color="grey", size=10)
+    # plt.ylim(0, max(values)*1.1)
+    
+    # Plot data
+    ax.plot(angles, values, linewidth=2, linestyle='solid', color='#1f77b4')
+    ax.fill(angles, values, '#1f77b4', alpha=0.25)
+    
+    plt.title('Sensitivity Analysis: Cost Reduction Potential\n(Impact of 50% Technical Improvement)', y=1.08, fontsize=15, fontweight='bold')
+    
+    # Add annotation explaining the metric
+    plt.figtext(0.5, 0.02, "Values represent % reduction in Total Cost given a 50% improvement in the parameter.\nLarger area indicates higher sensitivity.", 
+                ha="center", fontsize=10, bbox={"facecolor":"white", "alpha":0.5, "pad":5})
+    
+    plt.tight_layout()
+    plt.savefig('Q1_Sensitivity_Radar.png')
+    plt.show()
+
+# -----------------------------------------------------------
+# 3. Cumulative Delivery Progress (Stacked Area + Lines)
+# -----------------------------------------------------------
+def plot_cumulative_progress(solver, opt_a):
+    print("Generating Cumulative Progress Plot...")
+    
+    years = np.linspace(0, 50, 200) # 50 Year horizon
+    M = solver.M / 1e6 # Convert to Million Tons
+    
+    # Scenario A (SE Only, a=1)
+    # Rate: Qse
+    rate_a = solver.Qse / 1e6
+    y_a = np.minimum(M, rate_a * years)
+    
+    # Scenario B (Rocket Only, a=0)
+    # Rate: Qrocket
+    rate_b = solver.Qrocket / 1e6
+    y_b = np.minimum(M, rate_b * years)
+    
+    # Scenario C (Optimal Hybrid)
+    # SE Part: Cap = a*M, Rate = Qse
+    # Rocket Part: Cap = (1-a)*M, Rate = Qrocket
+    # They run strictly parallel from t=0. 
+    # Stop when their specific quota is done.
+    
+    cap_se_c = opt_a * M
+    cap_rk_c = (1 - opt_a) * M
+    
+    y_c_se = np.minimum(cap_se_c, rate_a * years)
+    y_c_rk = np.minimum(cap_rk_c, rate_b * years)
+    y_c_total = y_c_se + y_c_rk
+    
+    # Plotting
     fig, ax = plt.subplots(figsize=(10, 6))
     
-    # Scenario C (Stacked)
-    ax.stackplot(years_plot, prog_c_se, prog_c_rocket, labels=['Scenario C (Elevator)', 'Scenario C (Rocket)'], 
-                 colors=['#1f77b4', '#ff7f0e'], alpha=0.3)
-    ax.plot(years_plot, prog_c_se + prog_c_rocket, color='#2c3e50', linewidth=2, linestyle='-', label='Scenario C (Total)')
+    # 1. Comparison Lines (Scenario A & B)
+    ax.plot(years, y_a, 'g-.', linewidth=2, label='Scenario A (SE Only)', alpha=0.8)
+    ax.plot(years, y_b, 'b-.', linewidth=2, label='Scenario B (Rocket Only)', alpha=0.8)
     
-    # Scenario A & B Lines
-    ax.plot(years_plot, prog_a, color='#1f77b4', linewidth=2, linestyle='--', label='Scenario A (SE Only)')
-    ax.plot(years_plot, prog_b, color='#ff7f0e', linewidth=2, linestyle='--', label='Scenario B (Rocket Only)')
+    # 2. Stacked Area for Scenario C
+    ax.stackplot(years, y_c_se, y_c_rk, 
+                 labels=['Scenario C (SE Contribution)', 'Scenario C (Rocket Contribution)'],
+                 colors=['#2ca02c', '#ff7f0e'], alpha=0.4)
+                 
+    # 3. Total Progress Line for C
+    ax.plot(years, y_c_total, 'k-', linewidth=2, label='Scenario C (Total)')
     
-    # Target Line
-    ax.axhline(100, color='red', linestyle=':', linewidth=2, label='Target (100 MT)')
+    # 4. Target Line
+    ax.axhline(y=M, color='red', linestyle=':', linewidth=2, label='Target (100 MT)')
     
-    plt.xlim(0, 200) # User Request: "X range to 200"
-    plt.ylim(0, 110)
+    # 5. Intersects
+    # Find when C hits M
+    # Ideally: T_c = max( (aM)/Qse, ((1-a)M)/Qrocket )
+    # Let's verify plotting matches calc
+    t_complete = np.argmax(y_c_total >= M * 0.999) # Approx index
+    if t_complete > 0:
+        t_val = years[t_complete]
+        ax.axvline(x=t_val, color='k', linestyle='--', alpha=0.5)
+        ax.text(t_val, M*1.02, f'{t_val:.1f} Y', ha='center', fontweight='bold')
+
+    ax.set_title('Cumulative Delivery Progress Comparison (Scenario C)', fontsize=14)
+    ax.set_xlabel('Years', fontsize=12)
+    ax.set_ylabel('Cumulative Cargo (Million Tons)', fontsize=12)
+    ax.legend(loc='lower right')
+    ax.grid(True, alpha=0.3)
+    ax.set_xlim(0, 40) # Limit x axis for clarity
     
-    plt.xlabel('Years from Start', fontsize=12)
-    plt.ylabel('Cumulative Mass Delivered (Million Tons)', fontsize=12)
-    plt.title('FIG 3: Cumulative Delivery Progress Comparison', fontsize=14)
-    plt.legend(loc='upper left')
-    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig('progress.png')
+    plt.show()
+
+def generate_refactored_plots():
+    print("Initializing...")
+    launch_max, price_2050 = get_parameters()
     
-    plt.savefig('progress.png', dpi=300)
-    print("Plot 3 Saved.")
+    # Base Solver
+    solver = Q1(FGI=launch_max, C_RB=price_2050)
+    
+    # Get optimal for Base
+    _, opt_a, _, _ = optimize_scheme_2(solver, 0.5, 0.5)
+    print(f"Optimal Alpha Base: {opt_a:.4f}")
+    
+    # Plot 1
+    plot_resource_allocation(solver)
+    
+    # Plot 2
+    plot_sensitivity_radar(launch_max, price_2050)
+    
+    # Plot 3
+    plot_cumulative_progress(solver, opt_a)
 
 if __name__ == "__main__":
-    plot_resource_allocation()
-    plot_sensitivity_radar()
-    plot_cumulative_progress()
+    generate_refactored_plots()
