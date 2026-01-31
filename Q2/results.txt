@@ -1,29 +1,39 @@
-Starting Sensitivity Analysis...
+--- Parameters ---
+Target Mass M: 100.0 Million Tons
+SE Capacity: 537,000 t/year
+Rocket Capacity (Total): 137,500 t/year
+DEBUG: Q2 Init - Qse=537000, Qrocket=137500
 ------------------------------
 Sensitivity Analysis Results:
 Range assessed: Pr [0.001, 0.200], Pes [0.001, 0.200]
-Cost Range: $3761.32B - $4663.09B
+Cost Range: $3764.17B - $5509.27B
   Lowest Cost at Pr=0.001, Pes=0.001
   Highest Cost at Pr=0.200, Pes=0.200
-Time Range: 148.4 Years - 185.3 Years
+Time Range: 148.5 Years - 220.4 Years
   Fastest Time at Pr=0.001, Pes=0.001
   Slowest Time at Pr=0.200, Pes=0.200
-Avg Cost Sensitivity to Pes: $0.244B per step
-Avg Cost Sensitivity to Pr: $47.216B per step
+Avg Cost Sensitivity to Pes: $79.307B per step
+Avg Cost Sensitivity to Pr: $11.932B per step
 ------------------------------
 
 Starting Monte Carlo Simulation (1000 runs)...
+
+--- Parameters ---
+Target Mass M: 100.0 Million Tons
+SE Capacity: 537,000 t/year
+Rocket Capacity (Total): 741,250 t/year
+DEBUG: Q2 Init - Qse=537000, Qrocket=741250
 ------------------------------
 Monte Carlo Analysis Results (1000 runs):
 Completion Time (Years):
-  Mean: 163.40
-  Median: 163.00
-  Std Dev: 1.30
-  95% CI: [161.00, 166.00]
-  Range: 160 - 168
+  Mean: 87.88
+  Median: 88.00
+  Std Dev: 0.77
+  95% CI: [87.00, 89.00]
+  Range: 86 - 91
 Total Cost (Billion $):
-  Mean: $4114.99B
-  Median: $4105.97B
-  Std Dev: $31.28B
-  95% CI: [$4057.06B, $4177.56B]
+  Mean: $11557.08B
+  Median: $11572.08B
+  Std Dev: $98.57B
+  95% CI: [$11441.57B, $11702.60B]
 ------------------------------

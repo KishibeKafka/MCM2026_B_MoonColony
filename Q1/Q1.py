@@ -10,9 +10,6 @@ from scipy.optimize import milp, LinearConstraint, Bounds
 
 from Q1.load_data import load_data
 
-# load datasets
-df_launch, _, _ = load_data()
-
 def model_for_launch(df_launch):
     # 10 Launch Locations
     target_keywords = [
@@ -292,6 +289,8 @@ def optimize_scheme_2(solver, w1=0.5, w2=0.5):
 
 # --- Execution ---
 if __name__ == "__main__":
+    # load datasets
+    df_launch, _, _, _ = load_data()
     launch_max, price_2050 = get_parameters()
     q1_solver = Q1(FGI=launch_max, C_RB=price_2050)
 

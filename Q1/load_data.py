@@ -20,48 +20,31 @@ def load_data():
     df_pop = pd.read_csv(population_file)
     df_launch = pd.read_csv(launch_file)
 
+    water_world = df_water[
+        (df_water['Entity'] == 'World')][['Entity', 'Year', 'Freshwater use']].copy()
+
+    pop_col = 'Population - Sex: all - Age: all - Variant: estimates'
+    pop_world = df_pop[(df_pop['Entity'] == 'World')][['Entity', 'Year', pop_col]].copy()
+    pop_world = pop_world.rename(columns={pop_col: 'Population'})
+
     # rename
     # Entity maybe country, continent, organization or even world...
     df_co2 = df_co2.rename(columns={'Annual CO₂ emissions (per capita)':'CO₂ emissions'})
-
-    # get water usage per capita
-    water_world = df_water[
-        (df_water['Entity'] == 'World') &
-        (df_water['Year'] >= 1950) &
-        (df_water['Year'] <= 2014)
-        ][['Entity', 'Year', 'Freshwater use']].copy()
-
-    pop_col = 'Population - Sex: all - Age: all - Variant: estimates'
-    pop_world = df_pop[
-        (df_pop['Entity'] == 'World') &
-        (df_pop['Year'] >= 1950) &
-        (df_pop['Year'] <= 2014)
-        ][['Entity', 'Year', pop_col]].copy()
-
-    merged = pd.merge(
-        water_world,
-        pop_world,
-        on=['Entity', 'Year'],
-        how='inner'
-    )
-
-    merged['Per Capita Water Use'] = merged['Freshwater use'] / merged[pop_col]
-
-    df_water_per_cap = merged[['Entity', 'Year', 'Per Capita Water Use']].copy()
-    df_water_per_cap = df_water_per_cap.rename(columns={
-        'Per Capita Water Use': 'Freshwater use per capita'
-    })
 
     # launch data from 1992 to 2025
     df_launch['Date'] = pd.to_datetime(df_launch['Date'], utc=True, errors='coerce')
     df_launch['Year'] = df_launch['Date'].dt.year
     df_launch = df_launch[df_launch['Year'] < 2026]
 
-    return df_launch, df_water_per_cap, df_co2
+    return df_launch, water_world, pop_world, df_co2
 
-df_launch, df_water,df_co2 = load_data()
-# print(df_launch.tail())
-# sns.set_theme(style = "darkgrid")
-# sns.lineplot(x = 'Year', y = 'Freshwater use per capita', data = df_water)
-# plt.show()
+if __name__ == '__main__':
+    df_launch, df_water, df_pop, df_co2 = load_data()
+    # print(df_launch.tail())
+#     sns.set_theme(style = "darkgrid")
+#     sns.lineplot(x = 'Year', y = 'Freshwater use', data = df_water)
+#     plt.show()
+# #
+#     sns.lineplot(x = 'Year', y = 'Population', data = df_pop)
+#     plt.show()
 

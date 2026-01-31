@@ -6,8 +6,8 @@ import seaborn as sns
 from Q1.Q1 import Q1
 
 class Q2(Q1):
-    def __init__(self, FGI, C_RB):
-        super().__init__(FGI, 21464577.32)
+    def __init__(self, FGI=593, C_RB=21464577.32):
+        super().__init__(FGI, C_RB)
         print(f"DEBUG: Q2 Init - Qse={self.Qse}, Qrocket={self.Qrocket}")
         self.Cfix = C_RB  # Cost to repair one cable
 
@@ -173,9 +173,7 @@ def monte_carlo_simulation(num_simulations=1000):
     print(f"\nStarting Monte Carlo Simulation ({num_simulations} runs)...")
     
     # Initialize Solver for parameters
-    FGMAX_VAL = 110 
-    C_RB_VAL = 21464577.32 
-    solver = Q2(FGI=FGMAX_VAL, C_RB=C_RB_VAL)
+    solver = Q2(FGI=593, C_RB=21464577.32)
     
     sim_times = []
     sim_costs = []
@@ -299,6 +297,7 @@ def monte_carlo_simulation(num_simulations=1000):
     plt.savefig('monte_carlo_results.png')
     plt.show()
 
-sensitivity_analysis()
-monte_carlo_simulation()
+if __name__ == "__main__":
+    sensitivity_analysis()
+    monte_carlo_simulation()
 
