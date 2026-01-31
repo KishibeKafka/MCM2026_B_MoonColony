@@ -1,0 +1,29 @@
+Starting Sensitivity Analysis...
+------------------------------
+Sensitivity Analysis Results:
+Range assessed: Pr [0.001, 0.200], Pes [0.001, 0.200]
+Cost Range: $3761.32B - $4663.09B
+  Lowest Cost at Pr=0.001, Pes=0.001
+  Highest Cost at Pr=0.200, Pes=0.200
+Time Range: 148.4 Years - 185.3 Years
+  Fastest Time at Pr=0.001, Pes=0.001
+  Slowest Time at Pr=0.200, Pes=0.200
+Avg Cost Sensitivity to Pes: $0.244B per step
+Avg Cost Sensitivity to Pr: $47.216B per step
+------------------------------
+
+Starting Monte Carlo Simulation (1000 runs)...
+------------------------------
+Monte Carlo Analysis Results (1000 runs):
+Completion Time (Years):
+  Mean: 163.40
+  Median: 163.00
+  Std Dev: 1.30
+  95% CI: [161.00, 166.00]
+  Range: 160 - 168
+Total Cost (Billion $):
+  Mean: $4114.99B
+  Median: $4105.97B
+  Std Dev: $31.28B
+  95% CI: [$4057.06B, $4177.56B]
+------------------------------

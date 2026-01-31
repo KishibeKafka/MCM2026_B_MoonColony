@@ -144,8 +144,8 @@ def predict_2050_fgi(model, annual_launches):
     plt.grid(True, alpha=0.3)
     plt.savefig('launch_times.png')
     plt.show()
-    print(f"Predicted FGI is {round(int(fgi[0]/10))}")
-    return round(int(fgi[0]/10))
+    print(f"Predicted FGI is {round(fgi[0]/10)}")
+    return round(fgi[0]/10)
 
 model, annual_launches = model_for_launch(df_launch)
 FGI = predict_2050_fgi(model, annual_launches)
@@ -276,7 +276,7 @@ def calculate_scenario_metrics(fgi_array):
 
     term1 = a * M * C_unit_SE
     term2 = (1 - a) * M * C_RM
-    term3 = C_RB * np.sum(fgi_array)
+    term3 = (1 - a) * C_RB * np.sum(fgi_array)
 
     Ctot = term1 + term2 + term3
 
