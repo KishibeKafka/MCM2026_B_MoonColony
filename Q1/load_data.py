@@ -13,7 +13,7 @@ def load_data():
     water_file = os.path.join(data_path, 'global-freshwater-use-over-the-long-run.csv')
     co2_file = os.path.join(data_path, 'co-emissions-per-capita.csv')
     population_file = os.path.join(data_path, 'population.csv')
-    launch_file = os.path.join(data_path, 'mission_launches.csv')
+    launch_file = os.path.join(data_path, 'rocket_launches.csv')
 
     df_water = pd.read_csv(water_file)
     df_co2 = pd.read_csv(co2_file)
@@ -52,13 +52,13 @@ def load_data():
         'Per Capita Water Use': 'Freshwater use per capita'
     })
 
-    # launch data
-    df_launch = df_launch.drop(columns=['Unnamed: 0'])
+    # launch data from 1992 to 2025
+    df_launch = df_launch[pd.to_datetime(df_launch['Date']).dt.year < 2026]
 
     return df_launch, df_water_per_cap, df_co2
 
 df_launch, df_water,df_co2 = load_data()
-# print(df_water.head())
+# print(df_launch.tail())
 # sns.set_theme(style = "darkgrid")
 # sns.lineplot(x = 'Year', y = 'Freshwater use per capita', data = df_water)
 # plt.show()

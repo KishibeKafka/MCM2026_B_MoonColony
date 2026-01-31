@@ -18,11 +18,10 @@ def model_for_launch(df_launch):
     # working on Date
     df_launch['Date'] = pd.to_datetime(df_launch['Date'], utc=True, errors='coerce')
     df_launch['Year'] = df_launch['Date'].dt.year
-    df_launch = df_launch[df_launch['Year'] > 1991]
 
     # 10 Launch Locations
     target_keywords = [
-        'Alaska', 'California', 'Texas', 'Florida', 'Virginia',  # USA States
+        'Alaska', 'CA', 'TX', 'FL', 'Virginia',  # USA States
         'Kazakhstan',  # Country
         'French Guiana',  # Region
         'Satish Dhawan Space Centre',  # India Specific
@@ -69,6 +68,27 @@ def model_for_launch(df_launch):
             
             return total_pred, max_pred, min_pred
 
+    # Piecewise Linear Model Class (Breakpoint 2020)
+    class PiecewiseLinearRegression:
+        def __init__(self, breakpoint=2020):
+            self.breakpoint = breakpoint
+            self.model = LinearRegression()
+            
+        def _transform(self, X):
+            # Feature 1: x
+            # Feature 2: max(0, x - breakpoint)
+            # This creates a hinge function that allows slope change at breakpoint
+            X_transformed = np.hstack([X, np.maximum(0, X - self.breakpoint)])
+            return X_transformed
+
+        def fit(self, X, y):
+            X_new = self._transform(X)
+            self.model.fit(X_new, y)
+
+        def predict(self, X):
+            X_new = self._transform(X)
+            return self.model.predict(X_new)
+
     models = []
     print("\nTraining individual models for each location:")
     
@@ -87,17 +107,17 @@ def model_for_launch(df_launch):
         X_loc = annual_loc[['Year']].values
         y_loc = annual_loc['Count'].values
         
-        # Polynomial Regression Degree 2
-        m = make_pipeline(PolynomialFeatures(2), LinearRegression())
+        # Piecewise Linear Regression (Breakpoint 2020)
+        m = PiecewiseLinearRegression(breakpoint=2020)
         m.fit(X_loc, y_loc)
         models.append(m)
-        print(f"  - Model trained for {keyword}")
+        print(f"  - Model trained for {keyword} (Piecewise Linear)")
     
     combined_model = CombinedModel(models)
     
     return combined_model, annual_launches
 
-def predict_2050(model, annual_launches):
+def predict_2050_fgi(model, annual_launches):
     # 预测 2050 年
     year_2050 = np.array([[2050]])
     fgi, fgmax, fgmin = model.predict(year_2050)
@@ -128,19 +148,18 @@ def predict_2050(model, annual_launches):
     plt.legend()
     plt.grid(True, alpha=0.3)
     plt.show()
-
-    return int(fgi[0]), int(fgmax[0])
+    print(f"Predicted FGI is {round(int(fgi[0]/10))}")
+    return round(int(fgi[0]/10))
 
 model, annual_launches = model_for_launch(df_launch)
-predict_2050(model, annual_launches)
+FGI = predict_2050_fgi(model, annual_launches)
 
 # --- 1. Parameters & Variables ---
 M = 1e8  # 100 million tons
 
 # Rockets (Scenario B)
-MI = 150       # Payload per annual launch slot (Tons)
-FGMAX_VAL = 61    # Max annual launches per site (Fixed Override as requested)
-FGI = 61      #
+MI = 125       # Payload per annual launch slot (Tons)
+FGMAX_VAL = FGI    # Max annual launches per site
 
 # Costs & Reliability
 C_RB = 1e6     # Fixed Cost per annual launch slot

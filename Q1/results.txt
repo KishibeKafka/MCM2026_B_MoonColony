@@ -1,0 +1,21 @@
+Predicted FGI is 109
+
+--- Parameters ---
+Target Mass M: 100.0 Million Tons
+SE Rate: 537000 Tons/Year; SE Unit Cost: 1950.0
+Rocket Max Rate: 136250 Tons/Year (Max Launches: 1090)
+
+Scenario A (SE Only): Time = 186.22 y, Cost = 195.00 B, a = 1.00
+Scenario B (Rockets Only): Time = 733.94 y, Cost = 501.09 B, a = 0.00
+
+Scheme 1: MIP (Time <= 180 years)
+  Result: Time = 179.98 y, Cost = 205.37 B
+  Parameter a (SE Share): 0.9665
+  Rocket Launches: 149.0
+
+Scheme 2: Pareto Front Generation
+
+Pareto Optimal (w=0.5):
+  Time: 166.67 y
+  Cost: 227.53 B
+  Parameter a: 0.8950

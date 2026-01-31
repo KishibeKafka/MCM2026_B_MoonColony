@@ -12,6 +12,6 @@ Source: Global freshwater use since 1900 - IGB – processed by Our World In Dat
 >UN, World Population Prospects (2024) – processed by Our World in Data. “Population, total – UN WPP” [dataset]. United Nations, “World Population Prospects” [original data].
 Source: UN, World Population Prospects (2024) – processed by Our World In Data
 
-<https://ourworldindata.org/population-growth>
+<https://thespacedevs.com/llapi>
 
 ## else
