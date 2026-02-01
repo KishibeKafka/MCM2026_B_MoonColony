@@ -172,6 +172,7 @@ class Q4(Q1):
         self.plot_sensitivity_multi(alphas, scheme_data, schemes)
         self.plot_pareto_front(alphas, scheme_data[2], schemes[2])
         self.plot_lambda3_surface(alphas, scheme_data[2], schemes[2])
+        self.plot_policy_flip(alphas, scheme_data[2])
         
     def plot_env_components_multi(self, alphas, scheme_data, schemes):
         fig, axes = plt.subplots(1, len(schemes), figsize=(18, 5), sharey=True)
@@ -341,6 +342,94 @@ class Q4(Q1):
         plt.tight_layout()
         # plt.savefig('Q4_Sensitivity_Surface.png', dpi=300)
         # print('Saved Q4_Sensitivity_Surface.png')
+        plt.show()
+
+    def plot_policy_flip(self, alphas, scheme_df, risk_levels=None):
+        if risk_levels is None:
+            risk_levels = np.linspace(0, 1, 80)
+
+        base_qse = self.Qse
+        policy_records = []
+
+        for risk in risk_levels:
+            degradation = max(0.3, 1 - 0.7 * risk)
+            self.Qse = base_qse * degradation
+
+            metrics = []
+            for alpha in alphas:
+                T, C = self.calculate_scenario_metrics(alpha)
+                metrics.append({'a': alpha, 'T': T, 'C': C})
+
+            metrics_df = pd.DataFrame(metrics)
+
+            T_range = metrics_df['T'].max() - metrics_df['T'].min()
+            C_range = metrics_df['C'].max() - metrics_df['C'].min()
+
+            T_norm = (metrics_df['T'] - metrics_df['T'].min()) / T_range if T_range > 0 else pd.Series(0, index=metrics_df.index)
+            C_norm = (metrics_df['C'] - metrics_df['C'].min()) / C_range if C_range > 0 else pd.Series(0, index=metrics_df.index)
+
+            env_scaled = scheme_df['E_total'] * (1 + 1.5 * risk)
+            env_norm = (env_scaled - env_scaled.min()) / (env_scaled.max() - env_scaled.min()) if env_scaled.max() > env_scaled.min() else pd.Series(0, index=scheme_df.index)
+
+            env_norm = env_norm.reset_index(drop=True)
+            Z = 0.4 * C_norm + 0.3 * T_norm + 0.3 * env_norm
+
+            best_idx = int(np.argmin(Z))
+            policy_records.append({
+                'risk': risk,
+                'a_opt': alphas[best_idx]
+            })
+
+        self.Qse = base_qse
+
+        policy_df = pd.DataFrame(policy_records)
+        policy_df['delta'] = policy_df['a_opt'].diff().abs()
+
+        critical_idx = policy_df['delta'].idxmax()
+        critical_point = policy_df.iloc[critical_idx] if pd.notna(critical_idx) else None
+
+        plt.figure(figsize=(10, 6))
+        plt.plot(policy_df['risk'], policy_df['a_opt'], color='#1f77b4', linewidth=2, label='Optimal a', zorder=3)
+        step = max(3, len(policy_df) // 8)
+        for idx in range(0, len(policy_df) - step, step):
+            start = policy_df.iloc[idx]
+            end = policy_df.iloc[idx + step]
+            dx = end['risk'] - start['risk']
+            dy = end['a_opt'] - start['a_opt']
+            norm = np.hypot(dx, dy)
+            if norm == 0:
+                continue
+            px = -dy / norm
+            py = dx / norm
+            offset = 0.015
+            x0 = start['risk'] + px * offset
+            y0 = start['a_opt'] + py * offset
+            x1 = end['risk'] + px * offset
+            y1 = end['a_opt'] + py * offset
+            plt.annotate(
+                '',
+                xy=(x1, y1),
+                xytext=(x0, y0),
+                arrowprops=dict(arrowstyle='->', color='#1f77b4', lw=1.6, alpha=0.75),
+                zorder=4
+            )
+        scatter = plt.scatter(policy_df['risk'], policy_df['a_opt'], c=policy_df['a_opt'], cmap='viridis', s=40)
+        plt.colorbar(scatter, label='Optimal Allocation Ratio a')
+
+        if critical_point is not None:
+            plt.axvline(critical_point['risk'], color='red', linestyle='--', linewidth=1.5, label='Resilience Threshold')
+            plt.text(critical_point['risk'], critical_point['a_opt'] + 0.03,
+                     f"Critical Point ≈ {critical_point['risk']:.2f}", color='red', ha='center')
+
+        plt.fill_between(policy_df['risk'], policy_df['a_opt'], color='#1f77b4', alpha=0.1)
+        plt.xlabel('Environmental deterioration risk index')
+        plt.ylabel('Optimal Allocation Ratio a')
+        plt.title('Policy Flip Phase Diagram')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        # plt.savefig('Q4_Policy_Flip_Phase.png', dpi=300)
+        # print('Saved Q4_Policy_Flip_Phase.png')
         plt.show()
 
 if __name__ == "__main__":
