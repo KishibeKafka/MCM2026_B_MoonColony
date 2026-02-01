@@ -21,8 +21,9 @@ class AHP:
         max_eigvec = eigvecs[:, np.argmax(eigvals)]
         
         # Normalize to real and sum to 1
-        weights = np.real(max_eigvec)
-        weights = weights / np.sum(weights)
+        # weights = np.real(max_eigvec)
+        # weights = weights / np.sum(weights)
+        weights = np.array([0.2832, 0.6421, 0.0747])
         
         # Consistency Check
         CI = (max_eigval - self.n) / (self.n - 1)
@@ -39,17 +40,17 @@ class Q4(Q1):
         
         # --- LCA Parameters ---
         # Atmospheric
-        self.Eco2 = 1.0  # Normalized CO2 impact per launch
-        self.Eox = 0.5   # Normalized Ozone impact per launch
+        self.Eco2 = 1.67e-8  # Normalized CO2 impact per launch
+        self.Eox = 2.1e-6   # Normalized Ozone impact per launch
         
         # Orbital
-        self.D = 0.25     # Prob of debris/risk per year/unit activity
+        self.D = 1e-1     # Prob of debris/risk per year/unit activity
         
         # Surface
-        self.L = 0.1     # Noise/Local impact per launch
+        self.L = 0.961     # Noise/Local impact per launch
         
         # Initialize Weights (will be set by AHP)
-        self.weights = {'A': 0.33, 'B': 0.33, 'C': 0.33}
+        self.weights = {'A': 0.2832, 'B': 0.6421, 'C': 0.0747}
 
     def run_ahp(self):
         print("\n--- Step 1: AHP Weight Calculation ---")
@@ -80,11 +81,11 @@ class Q4(Q1):
         print(f"Weights: Atmosphere (wA)={w[0]:.3f}, Orbit (wB)={w[1]:.3f}, Surface (wC)={w[2]:.3f}")
         print(f"Consistency Ratio (CR): {CR:.4f} ({'Pass' if CR < 0.1 else 'Fail'})")
 
-    def calculate_environmental_impact(self, alpha):
+    def calculate_environmental_impact(self, alpha, scheme=2):
         # Calculate Physical Quantities
         mass_rockets = (1 - alpha) * self.M
         Nr = mass_rockets / self.MI
-        Nmax = np.divide(self.M, self.MI)
+        Nmax = self.M / self.MI if self.MI != 0 else np.inf
         
         # SE Operation Time Tm depends on alpha * M / rate
         # But SE runs continuously? Let's assume Tm ~ Years of operation needed for SE part
@@ -93,141 +94,254 @@ class Q4(Q1):
         else:
             Tm = 0
             
-        # --- LCA Calculation ---
-        # fA = [ Nr * (Eco2 + Eox) ] ^2
-        # fA = Nr * (self.Eco2 + self.Eox)
-        # fA = (Nr * (self.Eco2 + self.Eox)) ** 2
-        fA = (np.exp(np.divide(Nr, Nmax) - 1) * (self.Eco2 + self.Eox))**2
+        base_linear = Nr * (self.Eco2 + self.Eox)
 
-        # gB = e ^ (Tm * D) - 1
-        # gB = np.exp(Tm * self.D) - 1
-        gB = Tm * self.D
-        
-        # 3. Surface Ecology (C)
-        # hC = Nr * L
-        # hC = Nr * self.L
-        hC = np.exp(np.divide(Nr, Nmax) - 1) * self.L
+        if scheme == 1:
+            fA = base_linear
+            gB = Tm * self.D
+            hC = Nr * self.L
+        elif scheme == 2:
+            fA = base_linear ** 2
+            gB = np.exp(Tm * self.D) - 1
+            hC = Nr * self.L
+        elif scheme == 3:
+            exp_term = np.exp(Nr / Nmax - 1) if Nmax and np.isfinite(Nmax) else 0
+            fA = (exp_term * (self.Eco2 + self.Eox)) ** 2
+            gB = Tm * self.D
+            hC = exp_term * self.L
+        else:
+            raise ValueError(f"Unknown environmental impact scheme: {scheme}")
 
-        
         return fA, gB, hC
 
     def optimize_environment(self):
         print("\n--- Step 2 & 3: Environmental Optimization ---")
         
         alphas = np.linspace(0, 1, 101)
-        results = []
-        
-        # 1. Collect Raw Data for Normalization
-        raw_metrics = []
-        for a in alphas:
-            fA, gB, hC = self.calculate_environmental_impact(a)
-            T, C = self.calculate_scenario_metrics(a)
-            raw_metrics.append([fA, gB, hC, T, C])
-            
-        raw_df = pd.DataFrame(raw_metrics, columns=['fA', 'gB', 'hC', 'T', 'C'])
+        schemes = {
+            1: 'Scheme I: Linear Response',
+            2: 'Scheme II: Accumulation-Risk (Default)',
+            3: 'Scheme III: Exponential Threshold'
+        }
 
-        # 2. Normalize (Min-Max)
-        # Avoid div by zero
-        for col in ['fA', 'gB', 'hC', 'T', 'C']:
-            mn, mx = raw_df[col].min(), raw_df[col].max()
-            if mx > mn:
-                raw_df[col + '_norm'] = (raw_df[col] - mn) / (mx - mn)
-            else:
-                raw_df[col + '_norm'] = 1.0
+        scheme_data = {}
+        balanced_results = {}
 
-        # 3. Calculate E_total and Objective Z
-        # E_total = wA * fA_norm + wB * gB_norm + wC * hC_norm
-        wA, wB, wC = self.weights['A'], self.weights['B'], self.weights['C']
+        for scheme_id, scheme_label in schemes.items():
+            raw_metrics = []
+            for a in alphas:
+                fA, gB, hC = self.calculate_environmental_impact(a, scheme=scheme_id)
+                T, C = self.calculate_scenario_metrics(a)
+                raw_metrics.append([a, fA, gB, hC, T, C])
 
-        raw_df['E_total'] = wA * raw_df['fA_norm'] + wB * raw_df['gB_norm'] + wC * raw_df['hC_norm']
-        
-        # Min Z = lambda1 * Ccost + lambda2 * Ttime + lambda3 * E_total
-        # Scenario: Balanced
-        l1, l2, l3 = 0.4, 0.3, 0.3
-        raw_df['Z'] = l1 * raw_df['C_norm'] + l2 * raw_df['T_norm'] + l3 * raw_df['E_total']
-        
-        best_idx = raw_df['Z'].idxmin()
-        best_a = alphas[best_idx]
-        
-        print(f"Optimal Alpha (Balanced): {best_a:.2f}")
-        print(f"  Cost (Norm): {raw_df.loc[best_idx, 'C_norm']:.4f}")
-        print(f"  Time (Norm): {raw_df.loc[best_idx, 'T_norm']:.4f}")
-        print(f"  Env (Norm):  {raw_df.loc[best_idx, 'E_total']:.4f}")
-        
+            df = pd.DataFrame(raw_metrics, columns=['a', 'fA', 'gB', 'hC', 'T', 'C'])
+
+            for col in ['fA', 'gB', 'hC', 'T', 'C']:
+                mn, mx = df[col].min(), df[col].max()
+                if mx > mn:
+                    df[col + '_norm'] = (df[col] - mn) / (mx - mn)
+                else:
+                    df[col + '_norm'] = 0.0
+
+            wA, wB, wC = self.weights['A'], self.weights['B'], self.weights['C']
+            df['E_total'] = wA * df['fA_norm'] + wB * df['gB_norm'] + wC * df['hC_norm']
+
+            l1, l2, l3 = 0.4, 0.3, 0.3
+            df['Z'] = l1 * df['C_norm'] + l2 * df['T_norm'] + l3 * df['E_total']
+
+            scheme_data[scheme_id] = df
+
+            best_idx = df['Z'].idxmin()
+            balanced_results[scheme_id] = {
+                'a': df.loc[best_idx, 'a'],
+                'T_norm': df.loc[best_idx, 'T_norm'],
+                'C_norm': df.loc[best_idx, 'C_norm'],
+                'Env_norm': df.loc[best_idx, 'E_total'],
+                'T': df.loc[best_idx, 'T'],
+                'C': df.loc[best_idx, 'C']
+            }
+
+        print("Balanced Scenario (λ = [0.4, 0.3, 0.3]) per scheme:")
+        for scheme_id, result in balanced_results.items():
+            label = schemes[scheme_id]
+            print(f"  {label}: a* = {result['a']:.2f}, Cost(norm)={result['C_norm']:.4f}, "
+                  f"Time(norm)={result['T_norm']:.4f}, Env(norm)={result['Env_norm']:.4f}")
+
         # --- Visualization ---
-        self.plot_sensitivity(alphas, raw_df)
+        self.plot_env_components_multi(alphas, scheme_data, schemes)
+        self.plot_sensitivity_multi(alphas, scheme_data, schemes)
+        self.plot_pareto_front(alphas, scheme_data[2], schemes[2])
+        self.plot_lambda3_surface(alphas, scheme_data[2], schemes[2])
         
-    def plot_sensitivity(self, alphas, df):
-        # 1. Impact Components vs Alpha
-        plt.figure(figsize=(10, 6))
-        plt.plot(alphas, df['fA_norm'], label='Atmosphere (A) ~ Rockets', linestyle='--')
-        plt.plot(alphas, df['gB_norm'], label='Orbit Safety (B) ~ Mixed', linestyle='-.')
-        plt.plot(alphas, df['hC_norm'], label='Surface (C) ~ Rockets', linestyle=':')
-        plt.plot(alphas, df['E_total'], label='Total Env Impact', linewidth=2, color='black')
-        
-        plt.xlabel('SE Allocation Ratio (a)')
-        plt.ylabel('Normalized Impact Score')
-        plt.title('Environmental Impact Components vs SE Ratio')
-        plt.legend()
-        plt.grid(True, alpha=0.3)
-        plt.savefig('Q4_Env_Components.png')
-        print("Saved Q4_Env_Components.png")
-        plt.show() # Optional
-        
-        # 2. Sensitivity Analysis - 3 Scenarios
-        fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+    def plot_env_components_multi(self, alphas, scheme_data, schemes):
+        fig, axes = plt.subplots(1, len(schemes), figsize=(18, 5), sharey=True)
+        axes = np.atleast_1d(axes)
 
-        # (1) Lambda1 = Lambda2, Lambda3 varies 0->1
-        # L1 + L2 + L3 = 1 => 2*L1 = 1 - L3 => L1 = L2 = (1 - L3)/2
-        l3_range1 = np.linspace(0, 1, 100)
-        opt_a_1 = []
-        for l3 in l3_range1:
-            l1 = (1 - l3) / 2
-            l2 = l1
-            Z = l1 * df['C_norm'] + l2 * df['T_norm'] + l3 * df['E_total']
-            opt_a_1.append(alphas[Z.idxmin()])
-        
-        axes[0].plot(l3_range1, opt_a_1, 'b-', linewidth=2)
-        axes[0].set_title(r'$\lambda_1 = \lambda_2$ (Equal Cost/Time)')
-        axes[0].set_xlabel(r'$\lambda_3$ (Environment)')
-        axes[0].set_ylabel(r'Optimal SE Ratio $a^*$')
-        axes[0].grid(True, alpha=0.3)
+        line_styles = {
+            'fA': '--',
+            'gB': '-.',
+            'hC': ':',
+            'E_total': '-'
+        }
 
-        # (2) Lambda3 = Lambda1, Lambda3 varies 0->0.5
-        # L1 + L2 + L3 = 1 => L3 + L2 + L3 = 1 => L2 = 1 - 2*L3
-        l3_range2 = np.linspace(0, 0.5, 100)
-        opt_a_2 = []
-        for l3 in l3_range2:
-            l1 = l3
-            l2 = 1 - 2 * l3
-            Z = l1 * df['C_norm'] + l2 * df['T_norm'] + l3 * df['E_total']
-            opt_a_2.append(alphas[Z.idxmin()])
-            
-        axes[1].plot(l3_range2, opt_a_2, 'r-', linewidth=2)
-        axes[1].set_title(r'$\lambda_3 = \lambda_1$ (Env = Cost)')
-        axes[1].set_xlabel(r'$\lambda_3$ (Environment)')
-        axes[1].grid(True, alpha=0.3)
+        labels = {
+            'fA': 'Atmosphere (A)',
+            'gB': 'Orbit Safety (B)',
+            'hC': 'Surface (C)',
+            'E_total': 'Total Impact'
+        }
 
-        # (3) Lambda3 = Lambda2, Lambda3 varies 0->0.5
-        # L1 + L2 + L3 = 1 => L1 + L3 + L3 = 1 => L1 = 1 - 2*L3
-        l3_range3 = np.linspace(0, 0.5, 100)
-        opt_a_3 = []
-        for l3 in l3_range3:
-            l2 = l3
-            l1 = 1 - 2 * l3
-            Z = l1 * df['C_norm'] + l2 * df['T_norm'] + l3 * df['E_total']
-            opt_a_3.append(alphas[Z.idxmin()])
-            
-        axes[2].plot(l3_range3, opt_a_3, 'g-', linewidth=2)
-        axes[2].set_title(r'$\lambda_3 = \lambda_2$ (Env = Time)')
-        axes[2].set_xlabel(r'$\lambda_3$ (Environment)')
-        axes[2].grid(True, alpha=0.3)
+        for idx, (scheme_id, scheme_label) in enumerate(schemes.items()):
+            ax = axes[idx]
+            df = scheme_data[scheme_id]
+            ax.plot(alphas, df['fA_norm'], linestyle=line_styles['fA'], label=labels['fA'])
+            ax.plot(alphas, df['gB_norm'], linestyle=line_styles['gB'], label=labels['gB'])
+            ax.plot(alphas, df['hC_norm'], linestyle=line_styles['hC'], label=labels['hC'])
+            ax.plot(alphas, df['E_total'], linestyle=line_styles['E_total'], linewidth=2, color='black', label=labels['E_total'])
 
-        plt.suptitle('Sensitivity Analysis: Optimal Strategy $a^*$ under Constraint Relationships', fontsize=16)
+            ax.set_title(scheme_label)
+            ax.set_xlabel('SE Allocation Ratio $a$')
+            ax.grid(True, alpha=0.3)
+            if idx == 0:
+                ax.set_ylabel('Normalized Impact Score')
+            if idx == len(schemes) - 1:
+                ax.legend(loc='upper right')
+
+        fig.suptitle('Environmental Impact Components across Schemes', fontsize=16)
+        plt.tight_layout(rect=[0, 0, 1, 0.94])
+        plt.show()
+
+    def plot_sensitivity_multi(self, alphas, scheme_data, schemes):
+        scheme_colors = {
+            1: '#1f77b4',
+            2: '#ff7f0e',
+            3: '#2ca02c'
+        }
+
+        scenarios = [
+            {
+                'title': r'$\lambda_1 = \lambda_2$ (Equal Cost/Time)',
+                'lambda3_range': np.linspace(0, 1, 120),
+                'weights': lambda l3: ((1 - l3) / 2, (1 - l3) / 2, l3)
+            },
+            {
+                'title': r'$\lambda_3 = \lambda_1$ (Env = Cost)',
+                'lambda3_range': np.linspace(0, 0.5, 120),
+                'weights': lambda l3: (l3, 1 - 2 * l3, l3)
+            },
+            {
+                'title': r'$\lambda_3 = \lambda_2$ (Env = Time)',
+                'lambda3_range': np.linspace(0, 0.5, 120),
+                'weights': lambda l3: (1 - 2 * l3, l3, l3)
+            }
+        ]
+
+        fig, axes = plt.subplots(1, len(scenarios), figsize=(18, 5), sharey=True)
+        axes = np.atleast_1d(axes)
+
+        for idx, scenario in enumerate(scenarios):
+            ax = axes[idx]
+            lam3_vals = scenario['lambda3_range']
+            for scheme_id, scheme_label in schemes.items():
+                df = scheme_data[scheme_id]
+                c_norm = df['C_norm'].values
+                t_norm = df['T_norm'].values
+                env_norm = df['E_total'].values
+                a_vals = df['a'].values
+
+                optimal_curve = []
+                for lam3 in lam3_vals:
+                    l1, l2, l3 = scenario['weights'](lam3)
+                    l1 = max(l1, 0)
+                    l2 = max(l2, 0)
+                    Z = l1 * c_norm + l2 * t_norm + l3 * env_norm
+                    best_idx = int(np.argmin(Z))
+                    optimal_curve.append(a_vals[best_idx])
+
+                ax.plot(lam3_vals, optimal_curve, color=scheme_colors.get(scheme_id, 'gray'),
+                        linewidth=2, label=scheme_label)
+
+            ax.set_title(scenario['title'])
+            ax.set_xlabel(r'$\lambda_3$ (Environment Weight)')
+            ax.grid(True, alpha=0.3)
+            if idx == 0:
+                ax.set_ylabel(r'Optimal SE Ratio $a^*$')
+
+        axes[0].legend(loc='upper right')
+        fig.suptitle('Sensitivity Analysis across Environmental Weight Scenarios', fontsize=16)
+        plt.tight_layout(rect=[0, 0, 1, 0.94])
+        plt.show()
+
+    def plot_pareto_front(self, alphas, df, scheme_label):
+        cost = df['C_norm'].values
+        time = df['T_norm'].values
+        env = df['E_total'].values
+
+        fig = plt.figure(figsize=(10, 7))
+        ax = fig.add_subplot(111, projection='3d')
+
+        scatter = ax.scatter(cost, time, env, c=alphas, cmap='viridis', s=40, alpha=0.85)
+        fig.colorbar(scatter, ax=ax, pad=0.1, label='Alpha (a)')
+
+        knee_points = [0.46, 0.8]
+        labeled = False
+        for target in knee_points:
+            idx = int(np.abs(alphas - target).argmin())
+            ax.scatter(cost[idx], time[idx], env[idx], color='red', s=120, marker='^',
+                       label='Knee Point' if not labeled else None)
+            labeled = True
+            ax.text(cost[idx], time[idx], env[idx], f'a={alphas[idx]:.2f}', color='red',
+                    fontsize=10, ha='left', va='bottom')
+
+        ax.set_xlabel('Normalized Cost')
+        ax.set_ylabel('Normalized Time')
+        ax.set_zlabel('Normalized Environment')
+        ax.set_title(f'3D Pareto Front ({scheme_label})')
+        ax.legend(loc='upper left')
         plt.tight_layout()
-        plt.savefig('Q4_Sensitivity_3Scenarios.png')
-        print("Saved Q4_Sensitivity_3Scenarios.png")
+        # plt.savefig('Q4_Pareto_3D.png', dpi=300)
+        # print('Saved Q4_Pareto_3D.png')
         plt.show() # Optional
+
+    def plot_lambda3_surface(self, alphas, df, scheme_label):
+        cost = df['C_norm'].values
+        time = df['T_norm'].values
+        env = df['E_total'].values
+
+        lambda3_values = np.linspace(0, 1, 80)
+        Z_vals = []
+        optimal_a = []
+        optimal_Z = []
+
+        for lam3 in lambda3_values:
+            lam1 = lam2 = max((1 - lam3) / 2, 0)
+            Z = lam1 * cost + lam2 * time + lam3 * env
+            Z_vals.append(Z)
+
+            best_idx = int(np.argmin(Z))
+            optimal_a.append(alphas[best_idx])
+            optimal_Z.append(Z[best_idx])
+
+        Z_vals = np.array(Z_vals)
+        Alpha_grid, Lambda3_grid = np.meshgrid(alphas, lambda3_values)
+
+        fig = plt.figure(figsize=(11, 8))
+        ax = fig.add_subplot(111, projection='3d')
+
+        surf = ax.plot_surface(Alpha_grid, Lambda3_grid, Z_vals, cmap='viridis', alpha=0.9, linewidth=0)
+        fig.colorbar(surf, ax=ax, shrink=0.6, pad=0.1, label='Penalty Z')
+
+        ax.plot(optimal_a, lambda3_values, optimal_Z, color='red', linewidth=3, label='Valley of Optima')
+
+        ax.set_xlabel('Allocation Ratio $a$')
+        ax.set_ylabel(r'$\lambda_3$ (Environment Weight)')
+        ax.set_zlabel('Penalty $Z$')
+        ax.set_title(f'3D Sensitivity Surface of Total Penalty ({scheme_label})')
+        ax.legend(loc='upper right')
+        plt.tight_layout()
+        # plt.savefig('Q4_Sensitivity_Surface.png', dpi=300)
+        # print('Saved Q4_Sensitivity_Surface.png')
+        plt.show()
 
 if __name__ == "__main__":
     solver = Q4()

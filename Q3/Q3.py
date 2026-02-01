@@ -6,7 +6,7 @@ from scipy.optimize import curve_fit
 from sklearn.linear_model import LinearRegression
 
 from Q1.Q1 import Q1
-from Q1.load_data import load_data
+from Q3.get_water import get_parameters
 
 class Q3(Q1):
     def __init__(self, FGI=593, C_RB=21464577.32, water_per_cap=541.87):
@@ -210,60 +210,6 @@ class Q3(Q1):
                 print(f"Year {yr} | Dem: {W_dem/1e6:.1f}M | Target: {W_target/1e6:.1f}M | a: {best_a:.2f} | WS: {ws_next/1e6:.1f}M")
                 
         return pd.DataFrame(results)
-
-def logistic_growth(t, K, P0, r):
-    return K / (1 + (K / P0 - 1) * np.exp(-r * t))
-
-def get_parameters(draw_plots=False):
-    # Load datasets
-    _, df_water, df_pop, _ = load_data()
-    
-    # --- 1. Population Model (Logistic Growth) ---
-    pop_data = df_pop.dropna(subset=['Year', 'Population'])
-    years_pop = pop_data['Year'].values
-    population = pop_data['Population'].values
-    
-    # Normalize time (t=0 at the start of the dataset)
-    t_pop = years_pop - years_pop[0]
-    
-    # Initial Parameter Guesses
-    p0_guess = [1.2e10, population[0], 0.02]
-    bounds = ([max(population), 0, 0], [np.inf, np.inf, np.inf])
-    
-    try:
-        popt_pop, _ = curve_fit(logistic_growth, t_pop, population, p0=p0_guess, bounds=bounds)
-        K_fit, P0_fit, r_fit = popt_pop
-        
-        # Predict 2050 Population
-        target_year_pop = 2050
-        t_target_pop = target_year_pop - years_pop[0]
-        pop_2050 = logistic_growth(t_target_pop, *popt_pop)
-        
-    except Exception as e:
-        print(f"Error fitting population model: {e}")
-        pop_2050 = None
-
-    # --- 2. Water Usage Model (Logistic Growth) ---
-    water_data = df_water.dropna(subset=['Year', 'Freshwater use'])
-    years_water = water_data['Year'].values
-    water_usage = water_data['Freshwater use'].values
-    t_water = years_water - years_water[0]
-
-    if len(water_data) > 0:
-        w0_guess = [max(water_usage) * 1.5, water_usage[0], 0.02]
-        w_bounds = ([max(water_usage), 0, 0], [np.inf, np.inf, np.inf])
-
-        try:
-            popt_water, _ = curve_fit(logistic_growth, t_water, water_usage, p0=w0_guess, bounds=w_bounds)
-            water_2050 = logistic_growth(2050 - years_water[0], *popt_water)
-        except Exception as e:
-            print(f"Error fitting water model: {e}")
-            water_2050 = None
-    else:
-        water_2050 = None
-
-    water_per_cap = water_2050 / pop_2050 if (water_2050 and pop_2050) else 541.87
-    return water_per_cap
 
 if __name__ == "__main__":
     water_per_cap = get_parameters(draw_plots=False)

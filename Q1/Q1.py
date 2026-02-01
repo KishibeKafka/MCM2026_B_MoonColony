@@ -230,6 +230,96 @@ class Q1:
         C = term1 + term2 + term3
         return T, C
 
+    def evaluate_alphas(self, alpha_values):
+        data = []
+        for alpha in alpha_values:
+            T, C = self.calculate_scenario_metrics(alpha)
+            data.append({'a': alpha, 'T': T, 'C': C})
+
+        df = pd.DataFrame(data)
+
+        t_min, t_max = df['T'].min(), df['T'].max()
+        c_min, c_max = df['C'].min(), df['C'].max()
+
+        if t_max > t_min:
+            df['T_norm'] = (df['T'] - t_min) / (t_max - t_min)
+        else:
+            df['T_norm'] = 0.0
+
+        if c_max > c_min:
+            df['C_norm'] = (df['C'] - c_min) / (c_max - c_min)
+        else:
+            df['C_norm'] = 0.0
+
+        return df
+
+    def plot_weight_surfaces(self, alpha_values=None, weight_resolution=80):
+        if alpha_values is None:
+            alpha_values = np.linspace(0, 1, 201)
+
+        df = self.evaluate_alphas(alpha_values)
+        alpha_array = df['a'].values
+        t_norm = df['T_norm'].values
+        c_norm = df['C_norm'].values
+
+        w1_values = np.linspace(0, 1, weight_resolution)
+        Z_w1 = []
+        opt_a_w1 = []
+        opt_Z_w1 = []
+
+        for w1 in w1_values:
+            w2 = 1 - w1
+            Z = w1 * t_norm + w2 * c_norm
+            Z_w1.append(Z)
+            idx = int(np.argmin(Z))
+            opt_a_w1.append(alpha_array[idx])
+            opt_Z_w1.append(Z[idx])
+
+        Z_w1 = np.array(Z_w1)
+        Alpha_grid_w1, W1_grid = np.meshgrid(alpha_array, w1_values)
+
+        fig = plt.figure(figsize=(11, 8))
+        ax = fig.add_subplot(111, projection='3d')
+        surf1 = ax.plot_surface(Alpha_grid_w1, W1_grid, Z_w1, cmap='viridis', alpha=0.9, linewidth=0)
+        fig.colorbar(surf1, ax=ax, shrink=0.6, pad=0.1, label='Penalty Z')
+        ax.plot(opt_a_w1, w1_values, opt_Z_w1, color='red', linewidth=3, label='Optimal Ridge')
+        ax.set_xlabel('Allocation Ratio a')
+        ax.set_ylabel('Weight w1 (Time)')
+        ax.set_zlabel('Penalty Z')
+        ax.set_title('Penalty Surface over a and w1')
+        ax.legend(loc='upper right')
+        plt.tight_layout()
+        plt.show()
+
+        w2_values = np.linspace(0, 1, weight_resolution)
+        Z_w2 = []
+        opt_a_w2 = []
+        opt_Z_w2 = []
+
+        for w2 in w2_values:
+            w1 = 1 - w2
+            Z = w1 * t_norm + w2 * c_norm
+            Z_w2.append(Z)
+            idx = int(np.argmin(Z))
+            opt_a_w2.append(alpha_array[idx])
+            opt_Z_w2.append(Z[idx])
+
+        Z_w2 = np.array(Z_w2)
+        Alpha_grid_w2, W2_grid = np.meshgrid(alpha_array, w2_values)
+
+        fig = plt.figure(figsize=(11, 8))
+        ax = fig.add_subplot(111, projection='3d')
+        surf2 = ax.plot_surface(Alpha_grid_w2, W2_grid, Z_w2, cmap='plasma', alpha=0.9, linewidth=0)
+        fig.colorbar(surf2, ax=ax, shrink=0.6, pad=0.1, label='Penalty Z')
+        ax.plot(opt_a_w2, w2_values, opt_Z_w2, color='red', linewidth=3, label='Optimal Ridge')
+        ax.set_xlabel('Allocation Ratio a')
+        ax.set_ylabel('Weight w2 (Cost)')
+        ax.set_zlabel('Penalty Z')
+        ax.set_title('Penalty Surface over a and w2')
+        ax.legend(loc='upper right')
+        plt.tight_layout()
+        plt.show()
+
 # Scheme 1: Mixed Integer Programming (Approximation via Linear Constraints)
 def optimize_scheme_1(solver, t_max):
     # Constants
@@ -260,26 +350,8 @@ def optimize_scheme_1(solver, t_max):
 def optimize_scheme_2(solver, w1=0.5, w2=0.5):    
     # Search Space
     alpha_values = np.linspace(0, 1, 1001)
-    results = []
-    
-    for val_a in alpha_values:
-        t_val, c_val = solver.calculate_scenario_metrics(val_a)        
-        results.append({
-            'a': val_a,
-            'T': t_val,
-            'C': c_val,
-        })
-    df = pd.DataFrame(results)
-    
-    # Find Anchors
-    T_min = df['T'].min()
-    C_min = df['C'].min()
-    T_max = df['T'].max()
-    C_max = df['C'].max()
-
-    df['Z_time'] = (df['T'] - T_min) / (T_max - T_min)
-    df['Z_cost'] = (df['C'] - C_min) / (C_max - C_min)
-    df['Z'] = w1 * df['Z_time'] + w2 * df['Z_cost']
+    df = solver.evaluate_alphas(alpha_values)
+    df['Z'] = w1 * df['T_norm'] + w2 * df['C_norm']
 
     # Find Optimal
     best_idx = df['Z'].idxmin()
@@ -346,3 +418,5 @@ if __name__ == "__main__":
     plt.legend()
     plt.savefig('pareto.png')
     plt.show()
+
+    q1_solver.plot_weight_surfaces()

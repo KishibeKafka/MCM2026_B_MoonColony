@@ -14,4 +14,6 @@ Source: UN, World Population Prospects (2024) – processed by Our World In Data
 
 <https://thespacedevs.com/llapi>
 
+<https://www.kaggle.com/datasets/atharvasoundankar/global-water-consumption-dataset-2000-2024>
+
 ## else
