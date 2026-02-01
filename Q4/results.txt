@@ -1,0 +1,17 @@
+S1:
+Optimal Alpha (Balanced): 0.42
+  Cost (Norm): 0.5800
+  Time (Norm): 0.0000
+  Env (Norm):  0.4870
+
+S2:
+Optimal Alpha (Balanced): 0.54
+  Cost (Norm): 0.4600
+  Time (Norm): 0.2066
+  Env (Norm):  0.1157
+
+S3:
+Optimal Alpha (Balanced): 0.42
+  Cost (Norm): 0.5800
+  Time (Norm): 0.0000
+  Env (Norm):  0.4002

@@ -21,7 +21,7 @@ def load_data():
     df_launch = pd.read_csv(launch_file)
 
     water_world = df_water[
-        (df_water['Entity'] == 'World')][['Entity', 'Year', 'Freshwater use']].copy()
+        (df_water['Entity'] == 'USA')][['Entity', 'Year', 'Freshwater use']].copy()
 
     pop_col = 'Population - Sex: all - Age: all - Variant: estimates'
     pop_world = df_pop[(df_pop['Entity'] == 'World')][['Entity', 'Year', pop_col]].copy()
