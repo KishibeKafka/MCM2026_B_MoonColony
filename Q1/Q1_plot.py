@@ -6,6 +6,7 @@ from matplotlib.ticker import FuncFormatter
 
 # Import Q1 class and helper functions
 from Q1 import Q1, get_parameters, optimize_scheme_2
+from load_data import load_data
 
 # --- Graph Settings ---
 plt.rcParams['font.family'] = 'SimHei'
@@ -70,19 +71,21 @@ def plot_sensitivity_radar(FGI_base, Price_base):
     _, _, _, cost_base = optimize_scheme_2(solver_base, 0.5, 0.5)
 
     
-    # Parameters to test: Ce, MI, b, FGI
+    # Parameters to test: Qeu, C_RB, MI, b, FGI
     # We will test +50% improvement (Cost reduction or Tech increase)
     # "Improvement" directions:
-    # Ce (Cost SE): -50%
+    # Qeu (SE throughput): +50%
+    # C_RB (Rocket Cost): -50%
     # MI (Payload): +50%
     # b (Maint): -50% (from 0.05 to 0.025)
     # FGI (Freq): +50%
     
     scenarios = {
-        'SE Unit Cost ($C_e$)':   {'param': 'Ce',    'change': -0.5}, 
-        'Rocket Payload ($m_i$)': {'param': 'MI',    'change': +0.5},
-        'Maintenance ($b$)':      {'param': 'b_factor', 'change': -0.5},
-        'Launch Freq ($fg_{max}$)': {'param': 'FGI',   'change': +0.5}
+        'SE Throughput ($Q_{eu}$)': {'param': 'Qeu',  'change': +0.05},
+        'Rocket Cost ($C_{RB}$)': {'param': 'C_RB',  'change': -0.05},
+        'Rocket Payload ($m_i$)': {'param': 'MI',    'change': +0.05},
+        # 'SE Cost Factor ($b$)':      {'param': 'b_factor', 'change': -0.05},
+        'Launch Freq ($fg_{max}$)': {'param': 'FGI',   'change': +0.05}
     }
     
     impacts = []
@@ -103,17 +106,20 @@ def plot_sensitivity_radar(FGI_base, Price_base):
             fgi_new = FGI_base * (1 + conf['change'])
             solver_new = Q1(FGI=fgi_new, C_RB=Price_base)
 
-        elif conf['param'] == 'Ce':
-            solver_new.Ce = solver_base.Ce * (1 + conf['change'])
-            # Recalc dependent
-            solver_new.Cse = solver_new.Ce + solver_new.Ce * (1 - solver_new.b_factor)
+        elif conf['param'] == 'Qeu':
+            solver_new.Qeu = solver_base.Qeu * (1 + conf['change'])
+            # Recalc dependent Qse = NUM_SE_PORTS * min(Qeu, Qed)
+            solver_new.Qse = solver_new.NUM_SE_PORTS * min(solver_new.Qeu, solver_new.Qed)
+            
+        elif conf['param'] == 'C_RB':
+            solver_new.C_RB = solver_base.C_RB * (1 + conf['change'])
             
         elif conf['param'] == 'MI':
             solver_new.MI = solver_base.MI * (1 + conf['change'])
             # Recalc dependent Qrocket = FGI * MI * Locs
             solver_new.Qrocket = solver_new.FGI * solver_new.MI * solver_new.NUM_LAUNCH_LOCATIONS
             # Also affects Cost? Term3 = ... * C_RB / MI. Yes.
-            
+
         elif conf['param'] == 'b_factor':
             solver_new.b_factor = solver_base.b_factor * (1 + conf['change'])
             # Recalc dependent
@@ -139,7 +145,19 @@ def plot_sensitivity_radar(FGI_base, Price_base):
     fig, ax = plt.subplots(figsize=(8, 8), subplot_kw=dict(polar=True))
     
     # Draw one axe per variable + labels
-    plt.xticks(angles[:-1], labels, size=12)
+    ax.set_thetagrids(np.degrees(angles[:-1]), labels, fontsize=12)
+    ax.tick_params(axis='x', pad=22)
+    # Tweak left/right label alignment to avoid overlap
+    for lbl, ang in zip(ax.get_xticklabels(), angles[:-1]):
+        deg = np.degrees(ang) % 360
+        if deg == 0:
+            lbl.set_ha('left')
+        elif deg == 180:
+            lbl.set_ha('right')
+        else:
+            lbl.set_ha('center')
+        lbl.set_rotation(0)
+        lbl.set_va('center')
     
     # Draw ylabels
     ax.set_rlabel_position(0)
@@ -150,14 +168,10 @@ def plot_sensitivity_radar(FGI_base, Price_base):
     ax.plot(angles, values, linewidth=2, linestyle='solid', color='#1f77b4')
     ax.fill(angles, values, '#1f77b4', alpha=0.25)
     
-    plt.title('Sensitivity Analysis: Cost Reduction Potential\n(Impact of 50% Technical Improvement)', y=1.08, fontsize=15, fontweight='bold')
-    
-    # Add annotation explaining the metric
-    plt.figtext(0.5, 0.02, "Values represent % reduction in Total Cost given a 50% improvement in the parameter.\nLarger area indicates higher sensitivity.", 
-                ha="center", fontsize=10, bbox={"facecolor":"white", "alpha":0.5, "pad":5})
+    plt.title('Sensitivity Analysis: Cost Reduction Potential\n(Impact of 5% Change)', y=1.2, fontsize=15, fontweight='bold')
     
     plt.tight_layout()
-    plt.savefig('Q1_Sensitivity_Radar.png')
+    plt.savefig('radar.png')
     plt.show()
 
 # -----------------------------------------------------------
@@ -233,7 +247,8 @@ def plot_cumulative_progress(solver, opt_a):
 
 def generate_refactored_plots():
     print("Initializing...")
-    launch_max, price_2050 = get_parameters()
+    df_launch, _, _, _ = load_data()
+    launch_max, price_2050 = get_parameters(df_launch)
     
     # Base Solver
     solver = Q1(FGI=launch_max, C_RB=price_2050)
